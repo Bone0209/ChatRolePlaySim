@@ -1,0 +1,62 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model World {
+  id        String   @id
+  name      String
+  prompt    String
+  createdAt DateTime @default(now())
+
+  entities  Entity[]
+  chats     Chat[]
+
+  @@map("worlds")
+}
+
+model GlobalConstant {
+  id        Int      @id @default(autoincrement())
+  category  String
+  keyName   String   @unique @map("key_name")
+  keyValue  String   @map("key_value")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("global_constants")
+}
+
+model Entity {
+  id          String   @id @default(uuid())
+  worldId     String   @map("world_id")
+  type        String
+  name        String
+  description String?
+  environment Json
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  world       World    @relation(fields: [worldId], references: [id], onDelete: Cascade)
+  chats       Chat[]
+
+  @@map("entities")
+}
+
+model Chat {
+  id        Int      @id @default(autoincrement())
+  worldId   String   @map("world_id")
+  chatType  String   @map("chat_type") // 0:System, 1:Player, 2:NPC
+  message   String
+  createdAt DateTime @default(now()) @map("created_at")
+  entityId  String?  @map("entity_id")
+
+  world     World    @relation(fields: [worldId], references: [id], onDelete: Cascade)
+  entity    Entity?  @relation(fields: [entityId], references: [id], onDelete: SetNull)
+
+  @@map("chats")
+}
