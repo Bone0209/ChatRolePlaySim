@@ -1,61 +1,61 @@
-# ファンタジー世界名の生成
+# Fantasy World Name Generation
 
-あなたはファンタジーRPGの世界設定を創造する専門家です。
-以下の指示に従い、**日本のライトノベルや漫画で使われるような**独創的なファンタジー世界の「名前」を**1つだけ**生成してください。
-
----
-
-## 言語制約（最重要）
-
-> **日本語で出力すること。**
-> - カタカナ造語、漢字、またはその組み合わせを使用すること。
-> - 英語名・アルファベット表記は禁止。
+You are an expert in creating Fantasy RPG World Settings.
+Follow the instructions below to generate **ONLY ONE unique Fantasy World "Name"** suitable for **Japanese Light Novels or Manga**.
 
 ---
 
-## 名前のスタイル
+## Language Constraints (CRITICAL)
 
-日本のライトノベルやアニメ、ゲームで見られるような響きの良いファンタジー世界名を目指してください。
+> **Output MUST be in Japanese.**
+> - Use Katakana coined words, Kanji, or a combination.
+> - English names or Alphabet notations are PROHIBITED.
 
-### 参考作品と世界名の例
+---
 
-| 作品ジャンル | 世界名の例 |
+## Name Style
+
+Aim for a euphonic Fantasy World Name often found in Japanese Light Novels, Anime, or Games.
+
+### Reference Works and Name Examples
+
+| Genre | Name Examples |
 |---|---|
-| 異世界転生系 | アルセリア、オルティア、グランゼリア、ナザリック |
-| 剣と魔法系 | ミッドガルド、ヴァナディース、アストラル |
-| ダークファンタジー | エレブ、ヨルムンガンド、ニヴルヘイム |
-| 和風ファンタジー | 常世の国、神無月の郷、黄泉比良坂 |
-| ゲーム風 | アインクラッド、ユグドラシル、アルヴヘイム |
+| Isekai Reincarnation | アルセリア (Arcellia), オルティア (Ortea), グランゼリア (Granzelia), ナザリック (Nazarick) |
+| Sword & Magic | ミッドガルド (Midgard), ヴァナディース (Vanadis), アストラル (Astral) |
+| Dark Fantasy | エレブ (Ereb), ヨルムンガンド (Jormungand), ニヴルヘイム (Niflheim) |
+| Japanese Fantasy | 常世の国 (Tokoyo no Kuni), 神無月の郷 (Kannazuki no Sato), 黄泉比良坂 (Yomotsuhirasaka) |
+| Game Style | アインクラッド (Aincrad), ユグドラシル (Yggdrasil), アルヴヘイム (Alfheim) |
 
-### 推奨パターン
+### Recommended Patterns
 
-| パターン | 例 |
+| Pattern | Example |
 |---|---|
-| カタカナ4〜6文字 | レグニカ、ルナティア、ゼルカナ、フォルティア |
-| カタカナ＋修飾語 | 蒼穹のイストワール、煌めく大地ラディアント |
-| 帝国・王国型 | ルグニカ王国、神聖オルテア帝国、シュトラール公国 |
-| 漢字＋カタカナ | 聖剣世界ゼフィリア、魔導大陸アルケミア |
+| Katakana 4-6 chars | レグニカ (Re-g-ni-ca), ルナティア (Lu-na-tia), ゼルカナ (Zel-ca-na), フォルティア (For-tia) |
+| Katakana + Modifier | 蒼穹のイストワール (Histoire of Blue Sky), 煌めく大地ラディアント (Radiant Earth) |
+| Kingdom/Empire Type | ルグニカ王国 (Lugnica Kingdom), 神聖オルテア帝国 (Holy Ortea Empire), シュトラール公国 (Stral Duchy) |
+| Kanji + Katakana | 聖剣世界ゼフィリア (Holy Sword World Zephiria), 魔導大陸アルケミア (Magic Continent Alchemia) |
 
 ---
 
-## 名前の制約
+## Name Constraints
 
-- **15文字以内**であること。
-- 響きが良く、覚えやすいこと。
-- 「魔王の国」「暗黒大陸」のような単純すぎる名前は避けること。
-- 固有名詞としての独自性を持たせること。
+- **Must be within 15 characters.**
+- Must sound good and be memorable.
+- Avoid simple names like "Demon King's Land" or "Dark Continent".
+- Ensure uniqueness as a proper noun.
 
 ---
 
-## テイスト / 雰囲気
+## Context / Flavor
 {{flavor}}
 
-## 文脈 / テーマ
+## Theme / Context
 {{context}}
 
 ---
 
-## 出力
+## Output
 
-名前のみを1行で出力してください。
+Output ONLY the Name in one line.
 

@@ -1,53 +1,53 @@
-# ファンタジー世界の概要生成
+# Fantasy World Description Generation
 
-あなたはファンタジーRPGの世界設定を創造する専門家です。
-以下の世界名に基づき、プレイヤーが冒険したくなるような魅力的な「概要・あらすじ」を生成してください。
+You are an expert in creating Fantasy RPG world settings.
+Based on the following world name, generate a captivating "Overview / Synopsis" that makes players want to adventure there.
 
 ---
 
-## 絶対厳守の言語ルール
+## Strict Language Rules
 
-> **⚠️ 警告: 日本語以外の文字（アルファベット、中国語、ロシア語等）は1文字たりとも含めてはなりません。 ⚠️**
+> **⚠️ WARNING: Do NOT include a single character other than Japanese (Alphabet, Chinese, Russian, etc. are PROHIBITED). ⚠️**
 
-**禁止事項:**
-- 英語の単語をそのまま使うこと (例: "massacre", "hope", "gate")
-- 日本語の文章中に英単語を混ぜること (例: "世界はchaosに包まれた")
+**Prohibitions:**
+- Using English words directly (e.g., "massacre", "hope", "gate") across the text.
+- Mixing English words in Japanese sentences (e.g., "The world was wrapped in chaos").
 
-**修正方針:**
-- 英単語を使いたい場合は、必ず**日本語（漢字、ひらがな）**または**カタカナ**に直してください。
+**Correction Policy:**
+- If you want to use an English word, MUST convert it to **Japanese (Kanji, Hiragana)** or **Katakana**.
 
-### 悪い例 vs 良い例
+### Bad vs Good Examples
 
-| 悪い例 (Bad) | 良い例 (Good) |
+| Bad Example | Good Example |
 |---|---|
-| この世界の住人の **massacre** の舞台は | この世界の住人の **殺戮** の舞台は |
-| 君は **stride to find a flicker of hope.** | 君は **希望の光を探して歩き出す。** |
-| **Chaos** と **Order** が交錯する | **混沌** と **秩序** が交錯する |
+| The stage of **massacre** | 殺戮の舞台 |
+| **stride to find a flicker of hope.** | 希望の光を探して歩き出す。 |
+| **Chaos** and **Order** intersect | **混沌** と **秩序** が交錯する |
 
 ---
 
-## 世界名
+## World Name
 {{context}}
 
-## テイスト / 雰囲気
+## Flavor / Atmosphere
 {{flavor}}
 
 ---
 
-## 出力形式 (JSON)
-            
-必ず以下のJSON形式で出力してください。**JSONのみを出力し、マークダウンやThinking Processは含めないでください。**
+## Output Format (JSON)
+
+You MUST output a valid JSON object in the following format. **Output ONLY the JSON, do not include markdown or Thinking Process.**
 
 ```json
 {
-  "description": "ここに生成した概要（150〜250文字程度）を入力してください。"
+  "description": "Enter the generated overview here (approx. 150-250 characters)."
 }
 ```
 
 ---
 
-## 注意
-- 内容は「だ・である調」で記述すること。
-- 改行コードを含めても構いません。
+## Note
+- Use "Da/Dearu" style (Declarative).
+- Newlines are allowed.
 
 
