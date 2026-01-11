@@ -633,6 +633,111 @@ ${contextData.targetProfile ? `Profile:\n${contextData.targetProfile}` : ''}
             }
         }
 
+        // 4. Post-Processing: Affection Judgment
+        if (worldId && targetId && !analysisResult.is_refused) {
+            // Run without awaiting to avoid blocking UI response
+            (async () => {
+                try {
+                    let affectionPromptPath = '';
+                    const possibleAffectionPaths = [
+                        path.join(__dirname, 'prompts', 'affection_analysis.md'),
+                        path.join(process.cwd(), 'main', 'prompts', 'affection_analysis.md'),
+                        path.join(process.cwd(), 'frontend', 'main', 'prompts', 'affection_analysis.md'),
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                        path.join((app as any).getAppPath(), 'main', 'prompts', 'affection_analysis.md'),
+                    ];
+                    for (const p of possibleAffectionPaths) {
+                        if (fs.existsSync(p)) { affectionPromptPath = p; break; }
+                    }
+
+                    if (!affectionPromptPath) return;
+
+                    const npc = await prisma.entity.findUnique({ where: { id: targetId } });
+                    if (!npc) return;
+
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    const nEnv: any = npc.environment || {};
+                    let currentAffection = 0;
+                    // Safely extract numeric affection
+                    if (nEnv.affection?.value !== undefined) currentAffection = Number(nEnv.affection.value) || 0;
+                    else if (nEnv.affection !== undefined) currentAffection = Number(nEnv.affection) || 0;
+
+                    const afTemplate = new PromptTemplate(affectionPromptPath);
+
+                    // Safely access properties on contextData
+                    // Cast contextData to any to avoid "Property does not exist" TS error for dynamic props like targetPersonality
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    const ctxAny = contextData as any;
+
+                    const afPrompt = afTemplate.render({
+                        targetName: npc.name,
+                        targetPersonality: ctxAny.targetPersonality || 'Unknown',
+                        currentAffection: currentAffection,
+                        userInput: message,
+                        actionType: analysisResult.actions?.[0]?.type || 'TALK',
+                        npcResponse: reply // Using the generated reply
+                    });
+
+                    // Use SUB_MODEL for Affection Judgment
+                    const afPayload = {
+                        messages: [{ role: 'user', content: afPrompt }],
+                        model: analyzerConfig.model,
+                        temperature: 0.1,
+                        response_format: { type: "json_object" }
+                    };
+
+                    logToFile("[Chat] Calling Affection Judgment API...");
+                    const afResponse = await fetch(`${analyzerConfig.baseUrl}/chat/completions`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            ...(analyzerConfig.apiKey ? { 'Authorization': `Bearer ${analyzerConfig.apiKey}` } : {})
+                        },
+                        body: JSON.stringify(afPayload)
+                    });
+
+                    if (afResponse.ok) {
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                        const afData: any = await afResponse.json();
+                        let afContent = afData.choices?.[0]?.message?.content || "{}";
+
+                        // Clean markdown
+                        afContent = afContent.replace(/^```json\s?/, '').replace(/```$/, '').trim();
+
+                        const afResult = JSON.parse(afContent);
+                        logToFile("[Chat] Affection Result:", afResult);
+
+                        if (afResult.affection_delta && afResult.affection_delta !== 0) {
+                            const newAffection = currentAffection + Number(afResult.affection_delta);
+
+                            // Update DB
+                            const newEnv = { ...nEnv };
+                            if (newEnv.affection && typeof newEnv.affection === 'object') {
+                                newEnv.affection.value = newAffection;
+                            } else {
+                                newEnv.affection = {
+                                    value: newAffection,
+                                    category: 'state',
+                                    visible: true
+                                };
+                            }
+
+                            if (prisma) {
+                                await prisma.entity.update({
+                                    where: { id: targetId },
+                                    data: { environment: newEnv }
+                                });
+                                logToFile(`[Chat] Updated Affection: ${currentAffection} -> ${newAffection} (Reason: ${afResult.reason})`);
+                            }
+                        }
+                    }
+
+                } catch (e) {
+                    console.error("Affection update task failed:", e);
+                }
+            })();
+        }
+
         return reply;
 
     } catch (err: any) {
