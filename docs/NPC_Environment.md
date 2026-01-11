@@ -47,6 +47,7 @@ type NpcProperty<T = any> = {
 | `personality` | String | **false** | 性格詳細。 |
 | `background` | String | **false** | 背景ストーリー。 |
 | `speakingStyle`| String | **false** | 話し方。 |
+| `romanticExperience` | String | **false** | 恋愛経験（例: 未経験, 死別, 豊富）。 |
 
 ### Parameter (能力値)
 | キー | 型 | デフォルト可視性 | 説明 |
@@ -58,6 +59,8 @@ type NpcProperty<T = any> = {
 | `dexterity` | Number | **false** | 器用さ。 |
 | `charisma` | Number | **false** | 魅力。 |
 | `isCombative` | Boolean | **false** | 戦闘能力。 |
+| `romanceThreshold` | Number | **false** | 恋愛関係になるための好感度閾値（標準: 400-700）。 |
+| `marriageThreshold` | Number | **false** | 婚姻関係になるための好感度閾値（標準: 800-950）。 |
 
 ### State (状態)
 | キー | 型 | デフォルト可視性 | 説明 |

@@ -230,6 +230,7 @@ ipcMain.handle('chat', async (event, { message, history = [], targetId, worldId 
                 const tone = getVal('speakingStyle', 'speaking_style') || 'Normal';
                 const ending = getVal('ending') || '';
                 const role = getVal('role') || 'NPC';
+                const gender = getVal('gender') || 'Unknown';
 
                 targetRole = role;
 
@@ -243,17 +244,52 @@ ipcMain.handle('chat', async (event, { message, history = [], targetId, worldId 
                     targetPersonality: personality,
                     targetTone: tone,
                     targetFirstPerson: firstPerson,
-                    targetEnding: ending
+                    targetEnding: ending,
+                    targetGender: gender
                 });
 
-                contextData.targetProfile = `
-Name: ${npcEntity.name}
-Role: ${targetRole}
-Personality: ${personality}
-First Person: ${firstPerson}
-Speaking Style: ${tone}
-Sentence Ending: ${ending}
-                `.trim();
+                // Generate Full Profile dynamically
+                const profileLines = [];
+                // Sort keys for stability?
+                const keys = Object.keys(nEnv).sort();
+
+                // Prioritize important keys for top of details
+                const priorityKeys = ['name', 'race', 'gender', 'ageGroup', 'role', 'personality', 'tone', 'speakingStyle', 'firstPerson', 'ending'];
+
+                // Add specific formatted fields first
+                profileLines.push(`**Name**: ${npcEntity.name}`);
+
+                // Add all other environment properties
+                for (const key of keys) {
+                    if (key === 'name') continue; // Already added
+                    const valObj = nEnv[key];
+                    // Handle both new structure { value, ... } and legacy raw values
+                    let val = valObj;
+                    let visible = true; // Default to true if simple value
+
+                    if (valObj && typeof valObj === 'object' && valObj.value !== undefined) {
+                        val = valObj.value;
+                        visible = valObj.visible !== false;
+                    }
+
+                    // User requested "ALL" data, so we include even hidden data like personality/thresholds
+                    // We can mark them as [Secret] or just list them.
+                    // Given this is the PROMPT for the AI acting as the NPC, it NEEDS to know hidden stats.
+
+                    if (val !== undefined && val !== null && val !== '') {
+                        // Format the key to be readable (camelCase to Title Case)
+                        const readableKey = key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase());
+                        profileLines.push(`**${readableKey}**: ${val}`);
+                    }
+                }
+
+                contextData.targetProfile = profileLines.join('\n');
+
+                // Keep keeping specific keys in contextData for legacy prompt support if needed,
+                // but targetProfile will be the main source of truth.
+                Object.assign(contextData, {
+                    targetGender: gender
+                });
             }
         }
 
@@ -631,6 +667,131 @@ ${contextData.targetProfile ? `Profile:\n${contextData.targetProfile}` : ''}
             } catch (e) {
                 console.error("Failed to save assistant chat log:", e);
             }
+        }
+
+        // 4. Post-Processing: Affection Judgment
+        if (worldId && targetId && !analysisResult.is_refused) {
+            // Run without awaiting to avoid blocking UI response
+            (async () => {
+                try {
+                    let affectionPromptPath = '';
+                    const possibleAffectionPaths = [
+                        path.join(__dirname, 'prompts', 'affection_analysis.md'),
+                        path.join(process.cwd(), 'main', 'prompts', 'affection_analysis.md'),
+                        path.join(process.cwd(), 'frontend', 'main', 'prompts', 'affection_analysis.md'),
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                        path.join((app as any).getAppPath(), 'main', 'prompts', 'affection_analysis.md'),
+                    ];
+                    for (const p of possibleAffectionPaths) {
+                        if (fs.existsSync(p)) { affectionPromptPath = p; break; }
+                    }
+
+                    if (!affectionPromptPath) return;
+
+                    const npc = await prisma.entity.findUnique({ where: { id: targetId } });
+                    if (!npc) return;
+
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    const nEnv: any = npc.environment || {};
+                    let currentAffection = 0;
+                    // Safely extract numeric affection
+                    if (nEnv.affection?.value !== undefined) currentAffection = Number(nEnv.affection.value) || 0;
+                    else if (nEnv.affection !== undefined) currentAffection = Number(nEnv.affection) || 0;
+
+                    const afTemplate = new PromptTemplate(affectionPromptPath);
+
+                    // Safely access properties on contextData
+                    // Cast contextData to any to avoid "Property does not exist" TS error for dynamic props like targetPersonality
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    const ctxAny = contextData as any;
+
+                    const afPrompt = afTemplate.render({
+                        targetName: npc.name,
+                        targetPersonality: ctxAny.targetPersonality || 'Unknown',
+                        currentAffection: currentAffection,
+                        userInput: message,
+                        actionType: analysisResult.actions?.[0]?.type || 'TALK',
+                        npcResponse: reply // Using the generated reply
+                    });
+
+                    // Use SUB_MODEL for Affection Judgment
+                    const afPayload = {
+                        messages: [{ role: 'user', content: afPrompt }],
+                        model: analyzerConfig.model,
+                        temperature: 0.1
+                    };
+
+                    logToFile("[Chat] Calling Affection Judgment API...");
+                    const afResponse = await fetch(`${analyzerConfig.baseUrl}/chat/completions`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            ...(analyzerConfig.apiKey ? { 'Authorization': `Bearer ${analyzerConfig.apiKey}` } : {})
+                        },
+                        body: JSON.stringify(afPayload)
+                    });
+
+                    if (afResponse.ok) {
+                        const afText = await afResponse.text();
+                        try {
+                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                            const afData: any = JSON.parse(afText);
+                            let afContent = afData.choices?.[0]?.message?.content || "{}";
+
+                            // Robust Extraction Strategy
+                            const jsonBlock = afContent.match(/```json\s*([\s\S]*?)\s*```/);
+                            if (jsonBlock) {
+                                afContent = jsonBlock[1].trim();
+                            } else {
+                                // Fallback: try to find the first '{' and last '}'
+                                const start = afContent.indexOf('{');
+                                const end = afContent.lastIndexOf('}');
+                                if (start !== -1 && end !== -1 && end > start) {
+                                    afContent = afContent.substring(start, end + 1);
+                                }
+                                // If plain text, might strip markdown delimiters if present at edges
+                                afContent = afContent.replace(/^```json\s?/, '').replace(/```$/, '').trim();
+                            }
+
+                            const afResult = JSON.parse(afContent);
+                            logToFile("[Chat] Affection Result:", afResult);
+
+                            if (afResult.affection_delta && afResult.affection_delta !== 0) {
+                                const newAffection = currentAffection + Number(afResult.affection_delta);
+
+                                // Update DB
+                                const newEnv = { ...nEnv };
+                                if (newEnv.affection && typeof newEnv.affection === 'object') {
+                                    newEnv.affection.value = newAffection;
+                                } else {
+                                    newEnv.affection = {
+                                        value: newAffection,
+                                        category: 'state',
+                                        visible: true
+                                    };
+                                }
+
+                                if (prisma) {
+                                    await prisma.entity.update({
+                                        where: { id: targetId },
+                                        data: { environment: newEnv }
+                                    });
+                                    logToFile(`[Chat] Updated Affection: ${currentAffection} -> ${newAffection} (Reason: ${afResult.reason})`);
+                                }
+                            }
+                        } catch (parseErr: any) {
+                            console.error("Affection API JSON Parse Error:", parseErr.message);
+                            logToFile(`[Chat] Affection Response invalid JSON: ${afText.substring(0, 200)}...`);
+                        }
+                    } else {
+                        const errText = await afResponse.text();
+                        logToFile(`[Chat] Affection API Error (${afResponse.status}): ${errText}`);
+                    }
+
+                } catch (e) {
+                    console.error("Affection update task failed:", e);
+                }
+            })();
         }
 
         return reply;
