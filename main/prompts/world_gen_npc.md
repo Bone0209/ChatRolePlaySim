@@ -61,6 +61,7 @@ You MUST output a valid JSON object in the following format. **Output ONLY the J
       "speakingStyle": { "value": "話し方（例: 敬語、古風、生意気）", "category": "persona", "visible": false },
       "firstPerson": { "value": "一人称（例: 私、ボク、俺、我、わらわ）", "category": "persona", "visible": true },
       "ending": { "value": "語尾（例: です・ます、だ・である、～じゃ、～だね）", "category": "persona", "visible": true },
+      "romanticExperience": { "value": "恋愛経験（例: 未経験、死別、豊富、トラウマあり）", "category": "persona", "visible": false },
 
       "maxHp": { "value": 100, "category": "parameter", "visible": false },
       "maxMp": { "value": 50, "category": "parameter", "visible": false },
@@ -68,7 +69,9 @@ You MUST output a valid JSON object in the following format. **Output ONLY the J
       "intelligence": { "value": 10, "category": "parameter", "visible": false },
       "dexterity": { "value": 10, "category": "parameter", "visible": false },
       "charisma": { "value": 10, "category": "parameter", "visible": false },
-      "isCombative": { "value": true/false, "category": "parameter", "visible": false },
+      "isCombative": { "value": true, "category": "parameter", "visible": false },
+      "romanceThreshold": { "value": 500, "category": "parameter", "visible": false },
+      "marriageThreshold": { "value": 800, "category": "parameter", "visible": false },
 
       "currentHp": { "value": 100, "category": "state", "visible": true },
       "currentMp": { "value": 50, "category": "state", "visible": true },
