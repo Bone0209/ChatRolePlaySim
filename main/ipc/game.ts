@@ -3,7 +3,7 @@ import { ipcMain } from 'electron';
 import prisma from '../lib/prisma';
 
 // Constants
-const STEPS_PER_DAY = 30; // 1日あたりのステップ数
+const STEPS_PER_DAY = 100000; // 1日あたりのUnit数 (変更前: 30)
 
 // Types
 interface StepState {
@@ -24,11 +24,18 @@ export const registerGameHandlers = () => {
         const day = Math.floor(totalSteps / STEPS_PER_DAY) + 1;
         const currentStep = totalSteps % STEPS_PER_DAY;
 
+        // Map 100,000 units to time of day
         let timeOfDay = 'Night';
-        if (currentStep < 5) timeOfDay = 'Early Morning';
-        else if (currentStep < 12) timeOfDay = 'Morning';
-        else if (currentStep < 18) timeOfDay = 'Afternoon';
-        else if (currentStep < 24) timeOfDay = 'Evening';
+        // 0 - 100,000 units mapped to 24h cycle roughly
+        // 0-20k: Night/Early Morning
+        // 20k-50k: Morning/Day
+        // 50k-75k: Afternoon/Evening
+        // 75k-100k: Night
+
+        if (currentStep < 20000) timeOfDay = 'Early Morning';
+        else if (currentStep < 50000) timeOfDay = 'Morning';
+        else if (currentStep < 75000) timeOfDay = 'Afternoon';
+        else timeOfDay = 'Evening';
 
         if (!prisma) {
             return { totalSteps, day, timeOfDay, currentStep };

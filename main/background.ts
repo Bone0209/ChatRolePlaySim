@@ -6,6 +6,7 @@ import { PromptTemplate } from './lib/PromptTemplate';
 import prisma from './lib/prisma';
 import { registerWorldHandlers } from './ipc/worlds';
 import { registerGameHandlers } from './ipc/game';
+import { logLlmRequest, logLlmResponse } from './lib/logger';
 
 const loadURL = serve({ directory: 'renderer/out' });
 
@@ -165,6 +166,9 @@ ipcMain.handle('chat', async (event, { message, history = [], targetId, worldId 
         weather: 'Clear'
     };
 
+    let targetRole = 'NPC';
+    let targetAffection = 500; // Default Neutral
+
     try {
         // Time
         const stepsConst = await prisma.globalConstant.findUnique({ where: { keyName: 'total_steps' } });
@@ -202,7 +206,9 @@ ipcMain.handle('chat', async (event, { message, history = [], targetId, worldId 
             }
         }
 
-        // Target NPC
+        // Target NPC Context
+        // targetRole and targetAffection are defined in outer scope
+
         if (targetId) {
             const npcEntity = await prisma.entity.findUnique({ where: { id: targetId } });
             if (npcEntity) {
@@ -212,9 +218,17 @@ ipcMain.handle('chat', async (event, { message, history = [], targetId, worldId 
                 // Build profile string from environment
                 const profile = nEnv.profile || {};
                 const firstPerson = profile.first_person || '私';
+
+                targetRole = nEnv.role?.value || nEnv.role || 'NPC';
+
+                // Try to find affection in various likely keys
+                if (nEnv.affection?.value !== undefined) targetAffection = Number(nEnv.affection.value);
+                else if (nEnv.affection !== undefined) targetAffection = Number(nEnv.affection);
+                else if (nEnv.likability?.value !== undefined) targetAffection = Number(nEnv.likability.value);
+
                 contextData.targetProfile = `
 Name: ${npcEntity.name}
-Role: ${nEnv.role || 'NPC'}
+Role: ${targetRole}
 Personality: ${profile.personality || 'Standard'}
 First Person: ${firstPerson}
 Tone: ${profile.speaking_style || 'Normal'}
@@ -226,32 +240,31 @@ Tone: ${profile.speaking_style || 'Normal'}
         console.warn('Failed to fetch context:', e);
     }
 
-    // 2. Prepare Judgement Prompt
-    let templatePath = '';
+    // 2. Action Analysis & Judgement (Local LLM)
+    let analysisTemplatePath = '';
     const possibleTemplatePaths = [
-        path.join(__dirname, 'prompts', 'user_prompt.md'),
-        path.join(process.cwd(), 'main', 'prompts', 'user_prompt.md'),
-        path.join(process.cwd(), 'frontend', 'main', 'prompts', 'user_prompt.md'),
+        path.join(__dirname, 'prompts', 'action_analysis.md'),
+        path.join(process.cwd(), 'main', 'prompts', 'action_analysis.md'),
+        path.join(process.cwd(), 'frontend', 'main', 'prompts', 'action_analysis.md'),
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        path.join((app as any).getAppPath(), 'main', 'prompts', 'user_prompt.md'),
+        path.join((app as any).getAppPath(), 'main', 'prompts', 'action_analysis.md'),
     ];
 
     for (const p of possibleTemplatePaths) {
         if (fs.existsSync(p)) {
-            templatePath = p;
+            analysisTemplatePath = p;
             break;
         }
     }
 
-    let judgementJson: any = { type: 'TALK', is_nsfw: false };
+    let analysisResult: any = { actions: [{ type: 'TALK' }], is_refused: false };
 
     // Load Config via Unified Helper
     const cfg = getAppConfig();
     logToFile(`[Chat] Config Loaded. Main: ${cfg.mainModel.model}, Sub: ${cfg.subModel.model}`);
 
-    // Routing: Judgement -> SUB_MODEL
-    const judgerConfig = cfg.subModel;
-
+    // Routing: Analysis -> SUB_MODEL
+    const analyzerConfig = cfg.subModel;
     // Routing: Generation -> MAIN_MODEL
     const generatorConfig = cfg.mainModel;
 
@@ -270,62 +283,165 @@ Tone: ${profile.speaking_style || 'Normal'}
     };
 
     try {
-        if (templatePath) {
-            logToFile(`[Chat] Loading Judgement Template...`);
-            const template = new PromptTemplate(templatePath);
+        if (analysisTemplatePath) {
+            logToFile(`[Chat] Loading Analysis Template...`);
+            const template = new PromptTemplate(analysisTemplatePath);
             const contextVars = {
                 worldTime: `Day ${contextData.day}, ${contextData.timeOfDay}`,
                 location: contextData.locationName,
-                weather: contextData.weather,
-                playerName: "Player",
-                playerCondition: "Healthy",
-                conversationHistory: history.slice(-5),
+                targetName: contextData.targetName,
+                targetRole: targetRole,
+                targetAffection: targetAffection,
                 userInput: message
             };
 
             const prompt = template.render(contextVars);
 
-            const judgerPayload = {
+            const analyzerPayload = {
                 messages: [{ role: 'user', content: prompt }],
-                model: judgerConfig.model,
-                temperature: 0.1,
+                model: analyzerConfig.model,
+                temperature: 0.1
             };
 
-            logToFile(`[Chat] Calling Judgement API (${judgerConfig.baseUrl})...`);
-            const jResponse = await fetchWithTimeout(`${judgerConfig.baseUrl}/chat/completions`, {
+            logToFile(`[Chat] Calling Analysis API (${analyzerConfig.baseUrl})...`);
+            logLlmRequest(analyzerConfig.baseUrl, analyzerConfig.model, JSON.stringify(analyzerPayload, null, 2));
+
+            const aResponse = await fetchWithTimeout(`${analyzerConfig.baseUrl}/chat/completions`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    ...(judgerConfig.apiKey ? { 'Authorization': `Bearer ${judgerConfig.apiKey}` } : {})
+                    ...(analyzerConfig.apiKey ? { 'Authorization': `Bearer ${analyzerConfig.apiKey}` } : {})
                 },
-                body: JSON.stringify(judgerPayload)
-            }, 10000);
+                body: JSON.stringify(analyzerPayload)
+            }, 180000);
 
-            if (jResponse.ok) {
-                const jData: any = await jResponse.json();
-                let content = jData.choices?.[0]?.message?.content || "";
+            if (aResponse.ok) {
+                const aData: any = await aResponse.json();
+                let content = aData.choices?.[0]?.message?.content || "";
+                logLlmResponse(content);
+                // Cleaning logic for Thinking Models
+                // Remove [THINK]...[/THINK] or [THINK]... EOF style blocks if identifiable
+                // Or simply look for the last occurrence of ```json ... ```
+
+                // Strategy 1: Extract json block if exists
+                const codeBlockMatch = content.match(/```json\s*([\s\S]*?)\s*```/g);
+                if (codeBlockMatch) {
+                    // Use the LAST code block as reasoning models often output thought code blocks first
+                    content = codeBlockMatch[codeBlockMatch.length - 1];
+                    content = content.replace(/```json\s*/, "").replace(/```$/, "").trim();
+                } else {
+                    // Strategy 2: Remove [THINK]...[/THINK] if present
+                    content = content.replace(/\[THINK\][\s\S]*?\[\/THINK\]/gi, "").trim();
+                    // Also remove open-ended [THINK] if it appears at start and seemingly ends before JSON
+                    // This is risky if [/THINK] is missing, but better than failing parse
+                    if (content.startsWith('[THINK]')) {
+                        const jsonStart = content.indexOf('{');
+                        if (jsonStart > -1) {
+                            content = content.substring(jsonStart);
+                        }
+                    }
+                }
+
+                // Cleanup common wrappers just in case
                 content = content.replace(/```json\s*/g, "").replace(/```\s*$/g, "").trim();
 
                 try {
-                    judgementJson = JSON.parse(content);
+                    analysisResult = JSON.parse(content);
                 } catch (jsonErr) {
-                    const jsonMatch = content.match(/\{[\s\S]*\}/);
-                    if (jsonMatch) {
-                        try { judgementJson = JSON.parse(jsonMatch[0]); } catch (e) { /* ignore */ }
+                    // Fallback: finding the last pair of braces
+                    const brackets = content.match(/\{[\s\S]*\}/g);
+                    if (brackets) {
+                        try {
+                            // Try the last match
+                            analysisResult = JSON.parse(brackets[brackets.length - 1]);
+                        } catch (e) {
+                            // Try the first match if last failed
+                            try { analysisResult = JSON.parse(brackets[0]); } catch (e2) { /* ignore */ }
+                        }
                     }
                 }
+
+                // [INTEGRATION FIX] Inject original user input into analysis result
+                if (analysisResult && typeof analysisResult === 'object') {
+                    analysisResult.original_input = message;
+                }
+            } else {
+                console.warn(`[Chat] Analysis API Error: ${aResponse.status}`);
+                try {
+                    const errorText = await aResponse.text();
+                    logLlmResponse(`Error Body (${aResponse.status}): ${errorText}`);
+                } catch (e) {
+                    logLlmResponse(`Error Body (${aResponse.status}): <Failed to read body>`);
+                }
             }
+        } else {
+            console.warn("[Chat] Analysis template not found, skipping analysis.");
         }
     } catch (e: any) {
-        logToFile("[Chat] Judgement Phase Error:", e.name === 'AbortError' ? 'Timeout' : e.message);
+        logToFile("[Chat] Analysis Phase Error:", e.name === 'AbortError' ? 'Timeout' : e.message);
     }
 
-    logToFile("[Chat] Judgement Result:", judgementJson);
+    logToFile("[Chat] Analysis Result:", analysisResult);
 
-    if (judgementJson.is_nsfw) {
-        // return "*System*: This action contains inappropriate content.";
-        console.warn("[Chat] NSFW flag detected but allowed per user preference.");
+    // Apply Analysis to Game State (Time Progression)
+    if (worldId && analysisResult.actions) {
+        try {
+            let stepCost = 0;
+            for (const action of analysisResult.actions) {
+                // Use AI estimated time consumption if available
+                if (typeof action.time_consumption === 'number') {
+                    stepCost += action.time_consumption;
+                } else {
+                    // Fallback defaults
+                    if (action.type === 'ACT' || action.type === 'ACTION') stepCost += 300;
+                    else if (action.type === 'TALK') stepCost += 100;
+                    else if (action.type === 'THOUGHT') stepCost += 0;
+                    else if (action.type === 'LOOK') stepCost += 50;
+                }
+            }
+
+            if (stepCost > 0) {
+                const keyName = `steps_${worldId}`;
+                let constant = await prisma.globalConstant.findUnique({ where: { keyName } });
+                if (!constant) {
+                    constant = await prisma.globalConstant.create({ data: { category: 'system', keyName, keyValue: '0' } });
+                }
+                const newSteps = parseInt(constant.keyValue, 10) + stepCost;
+                await prisma.globalConstant.update({
+                    where: { keyName },
+                    data: { keyValue: newSteps.toString() }
+                });
+                // Re-calculate local context time if needed, but we used old time for prompt which is fine
+            }
+        } catch (e) {
+            console.error("Failed to update steps from analysis:", e);
+        }
     }
+
+    let dynamicContext = "";
+
+    // [INTEGRATION FIX] Pass Analysis JSON to Chat Generation Phase
+    if (analysisResult) {
+        dynamicContext += `
+[Action Analysis]
+The user's action has been analyzed by the system as follows. 
+Use this to understand the user's detailed intent, target, and implied sentiment.
+\`\`\`json
+${JSON.stringify(analysisResult, null, 2)}
+\`\`\`
+`.trim();
+        dynamicContext += "\n\n";
+    }
+
+    if (analysisResult.is_refused) {
+        dynamicContext += `
+[IMPORTANT]
+The user's action was REFUSED by the character.
+Refusal Reason: ${analysisResult.refusal_reason || "Inappropriate or unwilling."}
+Reaction: Show rejection, disgust, or refusal to comply. Do NOT perform the requested action.
+        `.trim();
+    }
+
 
     // 3. Response Generation
     // Load System Prompt
@@ -345,7 +461,7 @@ Tone: ${profile.speaking_style || 'Normal'}
 
     // INJECT DYNAMIC CONTEXT
     // We append the dynamic context to the system prompt
-    const dynamicContext = `
+    dynamicContext += `
 [Current Situation]
 Location: ${contextData.locationName}
 Description: ${contextData.locationDesc}
@@ -367,14 +483,46 @@ ${contextData.targetProfile ? `Profile:\n${contextData.targetProfile}` : ''}
     const genPayload = {
         messages: [
             { role: 'system', content: systemPrompt },
-            ...history,
-            { role: 'user', content: message }
+            { role: 'system', content: systemPrompt },
+            // [HISTORY FIX] Fetch history from DB instead of using client-side history
+            ...(await (async () => {
+                if (!worldId) return [];
+                const recentChats = await prisma.chat.findMany({
+                    where: { worldId },
+                    orderBy: { id: 'desc' }, // Get latest first
+                    take: 20,
+                    include: { entity: true }
+                });
+                // Reverse to chronological order and map
+                return recentChats.reverse().map((c: any) => {
+                    let role = 'user';
+                    let speakerName = 'Unknown';
+
+                    if (c.chatType === '1') { // Player
+                        role = 'user';
+                        speakerName = 'Player';
+                    } else if (c.chatType === '2') { // NPC
+                        role = 'assistant';
+                        speakerName = c.entity?.name || 'Unknown';
+                    } else if (c.chatType === '0') { // System
+                        role = 'system';
+                        speakerName = 'System';
+                    }
+
+                    // Format content with speaker identity
+                    return {
+                        role: role,
+                        content: `[${speakerName}]: ${c.message}`
+                    };
+                });
+            })()),
         ],
         model: generatorConfig.model,
         temperature: cfg.temperature // Use config temperature
     };
 
     logToFile(`[Chat] Calling Generation API (${generatorConfig.model}) with Target: ${contextData.targetName}...`);
+    logLlmRequest(generatorConfig.baseUrl, generatorConfig.model, JSON.stringify(genPayload, null, 2));
 
     try {
         const gResponse = await fetchWithTimeout(`${generatorConfig.baseUrl}/chat/completions`, {
@@ -390,6 +538,7 @@ ${contextData.targetProfile ? `Profile:\n${contextData.targetProfile}` : ''}
 
         const gData: any = await gResponse.json();
         const reply = gData.choices?.[0]?.message?.content || '...';
+        logLlmResponse(reply);
         logToFile("[Chat] Generation Success");
 
         // POST-PERSISTENCE: Save Assistant Response

@@ -145,40 +145,8 @@ const parseMessage = (rawText: string): { emotion?: string, text: string } => {
     return { text: rawText };
 };
 
-// Command Mode Definition
-type CommandType = 'TALK' | 'ACTION' | 'LOOK';
+// Command Mode Definition Removed - Handled by Backend Analysis
 
-interface CommandMode {
-    id: CommandType;
-    label: string;
-    icon: React.ReactNode;
-    color: string;      // Text/Icon color
-    borderColor: string; // Border color class
-}
-
-const COMMAND_MODES: CommandMode[] = [
-    {
-        id: 'TALK',
-        label: 'TALK',
-        icon: <MessageSquare size={18} />,
-        color: 'text-blue-400',
-        borderColor: 'border-blue-500/80 ring-blue-500/20'
-    },
-    {
-        id: 'ACTION',
-        label: 'ACTION',
-        icon: <Sword size={18} />,
-        color: 'text-red-400',
-        borderColor: 'border-red-500/80 ring-red-500/20'
-    },
-    {
-        id: 'LOOK',
-        label: 'LOOK',
-        icon: <Eye size={18} />,
-        color: 'text-green-400',
-        borderColor: 'border-green-500/80 ring-green-500/20'
-    },
-];
 
 type SidePanelContent = 'none' | 'inventory' | 'status' | 'skills' | 'quests' | 'map';
 
@@ -445,8 +413,7 @@ export default function Home() {
     const [messages, setMessages] = useState<Message[]>([]);
     const [inputText, setInputText] = useState('');
     const [isLoading, setIsLoading] = useState(false);
-    const [commandMode, setCommandMode] = useState<CommandMode>(COMMAND_MODES[0]);
-    const [isModeOpen, setIsModeOpen] = useState(false);
+    // Command Mode State Removed
     const bottomRef = useRef<HTMLDivElement>(null);
 
     // Game State
@@ -505,7 +472,7 @@ export default function Home() {
                         sender: (h.role === 'user' ? 'user' : 'bot') as 'user' | 'bot',
                         senderName: h.speakerName || (h.role === 'user' ? 'Player' : 'System'),
                         entityId: h.entityId,
-                        emotion: 'normal'
+                        emotion: ''
                     }));
                     setMessages(mappedMessages);
                 }
@@ -628,16 +595,16 @@ export default function Home() {
             setMessages((prev) => [...prev, botResponse]);
 
             // --- Game Step Processing ---
-            if (window.electron?.game?.processAction) {
-                // Determine Mode string for backend
-                const actionRef = commandMode.id;
-                try {
-                    const newState = await window.electron.game.processAction(actionRef, text, (worldId as string));
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    setGameState(newState as any);
-                } catch (e) {
-                    console.error("Failed to process game action:", e);
-                }
+            // Moved to Backend Side (ChatParser)
+            // The chat API now handles processing actions and updating global state internally if needed,
+            // or we might need to poll for state updates.
+            // For now, let's just refresh state after a short delay or if the API returns new state.
+
+            // Re-fetch state to reflect changes
+            if (window.electron?.game?.getState) {
+                const newState = await window.electron.game.getState(worldId as string);
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                setGameState(newState as any);
             }
 
         } catch (error) {
@@ -725,46 +692,18 @@ export default function Home() {
                     <div className="p-3 bg-background/80 backdrop-blur-md shrink-0">
                         <form
                             onSubmit={handleSendMessage}
-                            className={`relative rounded-xl border-2 bg-card/50 shadow-sm focus-within:ring-2 transition-all flex flex-col ${commandMode.borderColor}`}
+                            className={`relative rounded-xl border-2 bg-card/50 shadow-sm focus-within:ring-2 transition-all flex flex-col border-white/10 ring-white/5`}
                         >
                             <div className="flex items-center px-3 py-1 gap-2">
-                                <div className="relative">
-                                    <button
-                                        type="button"
-                                        onClick={() => setIsModeOpen(!isModeOpen)}
-                                        className={`flex items-center gap-2 text-xs font-bold transition-all hover:opacity-80 ${commandMode.color}`}
-                                        title="Change Command Mode"
-                                    >
-                                        {commandMode.icon}
-                                        <span>{commandMode.label}</span>
-                                        <ChevronDown size={10} className="opacity-50" />
-                                    </button>
-                                    {isModeOpen && (
-                                        <>
-                                            <div className="fixed inset-0 z-10" onClick={() => setIsModeOpen(false)} />
-                                            <div className="absolute left-0 bottom-full mb-1 p-1 bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl z-50 flex flex-col gap-1 min-w-[140px]">
-                                                {COMMAND_MODES.map((mode) => (
-                                                    <button
-                                                        key={mode.id}
-                                                        type="button"
-                                                        onClick={() => {
-                                                            setCommandMode(mode);
-                                                            setIsModeOpen(false);
-                                                        }}
-                                                        className={`p-2 rounded hover:bg-white/10 flex items-center gap-3 ${mode.color} ${commandMode.id === mode.id ? 'bg-white/5' : ''}`}
-                                                        title={mode.label}
-                                                    >
-                                                        {mode.icon}
-                                                        <span className="text-sm font-bold">{mode.label}</span>
-                                                    </button>
-                                                ))}
-                                            </div>
-                                        </>
-                                    )}
+                                {/* Auto-Detection Mode Indicator */}
+                                <div className="flex items-center gap-2 text-xs font-bold text-zinc-400" title="Actions are automatically detected">
+                                    <Activity size={14} />
+                                    <span>AUTO</span>
                                 </div>
-                                {commandMode.id === 'TALK' && targets.length > 0 && (
+
+                                {targets.length > 0 && (
                                     <>
-                                        <span className="text-zinc-600 font-bold mx-1 text-xs">▶</span>
+                                        <div className="h-4 w-px bg-white/10 mx-1" />
                                         <button
                                             type="button"
                                             className="flex items-center gap-1 text-xs font-medium text-zinc-400 hover:text-zinc-200 transition-colors"
@@ -786,7 +725,7 @@ export default function Home() {
                                         handleSendMessage();
                                     }
                                 }}
-                                placeholder={`${commandMode.label}...`}
+                                placeholder={`Type your action or message...`}
                                 className="bg-transparent border-none focus-visible:ring-0 focus-visible:ring-offset-0 resize-none min-h-[36px] max-h-[150px] p-2 text-sm font-medium"
                             />
                             <div className="flex items-center justify-end p-2 pt-1 border-t border-white/5">
