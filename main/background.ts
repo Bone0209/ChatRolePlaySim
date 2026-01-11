@@ -230,6 +230,7 @@ ipcMain.handle('chat', async (event, { message, history = [], targetId, worldId 
                 const tone = getVal('speakingStyle', 'speaking_style') || 'Normal';
                 const ending = getVal('ending') || '';
                 const role = getVal('role') || 'NPC';
+                const gender = getVal('gender') || 'Unknown';
 
                 targetRole = role;
 
@@ -243,7 +244,8 @@ ipcMain.handle('chat', async (event, { message, history = [], targetId, worldId 
                     targetPersonality: personality,
                     targetTone: tone,
                     targetFirstPerson: firstPerson,
-                    targetEnding: ending
+                    targetEnding: ending,
+                    targetGender: gender
                 });
 
                 contextData.targetProfile = `
