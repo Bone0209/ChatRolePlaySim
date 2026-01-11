@@ -697,39 +697,48 @@ ${contextData.targetProfile ? `Profile:\n${contextData.targetProfile}` : ''}
                     });
 
                     if (afResponse.ok) {
-                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                        const afData: any = await afResponse.json();
-                        let afContent = afData.choices?.[0]?.message?.content || "{}";
+                        const afText = await afResponse.text();
+                        try {
+                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                            const afData: any = JSON.parse(afText);
+                            let afContent = afData.choices?.[0]?.message?.content || "{}";
 
-                        // Clean markdown
-                        afContent = afContent.replace(/^```json\s?/, '').replace(/```$/, '').trim();
+                            // Clean markdown
+                            afContent = afContent.replace(/^```json\s?/, '').replace(/```$/, '').trim();
 
-                        const afResult = JSON.parse(afContent);
-                        logToFile("[Chat] Affection Result:", afResult);
+                            const afResult = JSON.parse(afContent);
+                            logToFile("[Chat] Affection Result:", afResult);
 
-                        if (afResult.affection_delta && afResult.affection_delta !== 0) {
-                            const newAffection = currentAffection + Number(afResult.affection_delta);
+                            if (afResult.affection_delta && afResult.affection_delta !== 0) {
+                                const newAffection = currentAffection + Number(afResult.affection_delta);
 
-                            // Update DB
-                            const newEnv = { ...nEnv };
-                            if (newEnv.affection && typeof newEnv.affection === 'object') {
-                                newEnv.affection.value = newAffection;
-                            } else {
-                                newEnv.affection = {
-                                    value: newAffection,
-                                    category: 'state',
-                                    visible: true
-                                };
+                                // Update DB
+                                const newEnv = { ...nEnv };
+                                if (newEnv.affection && typeof newEnv.affection === 'object') {
+                                    newEnv.affection.value = newAffection;
+                                } else {
+                                    newEnv.affection = {
+                                        value: newAffection,
+                                        category: 'state',
+                                        visible: true
+                                    };
+                                }
+
+                                if (prisma) {
+                                    await prisma.entity.update({
+                                        where: { id: targetId },
+                                        data: { environment: newEnv }
+                                    });
+                                    logToFile(`[Chat] Updated Affection: ${currentAffection} -> ${newAffection} (Reason: ${afResult.reason})`);
+                                }
                             }
-
-                            if (prisma) {
-                                await prisma.entity.update({
-                                    where: { id: targetId },
-                                    data: { environment: newEnv }
-                                });
-                                logToFile(`[Chat] Updated Affection: ${currentAffection} -> ${newAffection} (Reason: ${afResult.reason})`);
-                            }
+                        } catch (parseErr: any) {
+                            console.error("Affection API JSON Parse Error:", parseErr.message);
+                            logToFile(`[Chat] Affection Response invalid JSON: ${afText.substring(0, 200)}...`);
                         }
+                    } else {
+                        const errText = await afResponse.text();
+                        logToFile(`[Chat] Affection API Error (${afResponse.status}): ${errText}`);
                     }
 
                 } catch (e) {
