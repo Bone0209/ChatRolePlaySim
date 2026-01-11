@@ -55,7 +55,7 @@ async function createMainWindow() {
         height: DEFAULT_DIMENSIONS.height,
         resizable: true,
         autoHideMenuBar: true,
-        title: 'ChatRPG',
+        title: 'AIRolePlaySim',
         webPreferences: {
             nodeIntegration: false,
             contextIsolation: true,

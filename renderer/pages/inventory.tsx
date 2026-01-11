@@ -20,7 +20,7 @@ export default function Inventory() {
     return (
         <React.Fragment>
             <Head>
-                <title>Inventory - ChatRPG</title>
+                <title>Inventory - AIRolePlaySim</title>
             </Head>
             <div className={`dark flex flex-col h-screen bg-background text-foreground font-sans p-4`}>
 

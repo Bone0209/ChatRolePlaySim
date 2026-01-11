@@ -29,7 +29,7 @@ export default function Status() {
     return (
         <React.Fragment>
             <Head>
-                <title>Status - ChatRPG</title>
+                <title>Status - AIRolePlaySim</title>
             </Head>
             <div className={`dark flex flex-col h-screen bg-background text-foreground font-sans p-4 space-y-3 overflow-y-auto custom-scrollbar`}>
 

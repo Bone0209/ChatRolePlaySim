@@ -28,7 +28,7 @@ export default function WorldSelect() {
     return (
         <React.Fragment>
             <Head>
-                <title>Select World - ChatRPG</title>
+                <title>Select World - AIRolePlaySim</title>
             </Head>
             <div className="flex flex-col h-screen p-6 space-y-6">
 

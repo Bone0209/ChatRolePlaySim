@@ -1,4 +1,4 @@
-# LunaChatRPG
+# AIRolePlaySim
 
 Nextron (Next.js + Electron) ベースのチャットRPGアプリケーション。
 

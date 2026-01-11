@@ -1,6 +1,6 @@
 # User Prompt Template
 
-This prompt is used to generate the AI's response in the ChatRPG system.
+This prompt is used to generate the AI's response in the AIRolePlaySim system.
 It includes instructions for roleplay, action classification, and NSFW handling.
 
 ## Context

@@ -80,7 +80,7 @@ export default function WorldCreate() {
     return (
         <React.Fragment>
             <Head>
-                <title>新規ワールド作成 - ChatRPG</title>
+                <title>新規ワールド作成 - AIRolePlaySim</title>
             </Head>
             <div className="flex flex-col h-screen p-6 relative overflow-y-auto">
 

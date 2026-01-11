@@ -1,6 +1,6 @@
 {
-    "name": "frontend",
-    "description": "LunaChatRPG Frontend",
+    "name": "ai-roleplay-sim",
+    "description": "AIRolePlaySim Frontend",
     "author": "User",
     "version": "1.0.0",
     "main": "app/background.js",

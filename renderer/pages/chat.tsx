@@ -624,7 +624,7 @@ export default function Home() {
     return (
         <React.Fragment>
             <Head>
-                <title>LunaChatRPG</title>
+                <title>AIRolePlaySim</title>
             </Head>
             {/* Main Layout: Chat (fixed) | Right Widgets (flex) */}
             <div className="h-screen w-full bg-background text-foreground font-sans overflow-hidden flex">
@@ -643,7 +643,7 @@ export default function Home() {
                             <ArrowLeft size={18} />
                         </Button>
                         <span className="font-bold text-lg tracking-wide bg-gradient-to-r from-blue-400 to-purple-500 text-transparent bg-clip-text">
-                            ChatRPG
+                            AIRolePlaySim
                         </span>
                         <Button
                             variant="ghost"
