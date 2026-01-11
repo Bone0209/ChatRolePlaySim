@@ -214,24 +214,45 @@ ipcMain.handle('chat', async (event, { message, history = [], targetId, worldId 
             if (npcEntity) {
                 contextData.targetName = npcEntity.name;
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                const nEnv: any = npcEntity.environment;
-                // Build profile string from environment
-                const profile = nEnv.profile || {};
-                const firstPerson = profile.first_person || '私';
+                const nEnv: any = npcEntity.environment || {};
 
-                targetRole = nEnv.role?.value || nEnv.role || 'NPC';
+                // Helper to safely get value from flat structure or legacy profile object
+                const getVal = (key: string, legacyKey?: string) => {
+                    if (nEnv[key]?.value !== undefined) return nEnv[key].value;
+                    if (nEnv[key] !== undefined && typeof nEnv[key] !== 'object') return nEnv[key];
+                    // Legacy fallback
+                    if (nEnv.profile && legacyKey && nEnv.profile[legacyKey]) return nEnv.profile[legacyKey];
+                    return null;
+                };
 
-                // Try to find affection in various likely keys
+                const firstPerson = getVal('firstPerson', 'first_person') || '私';
+                const personality = getVal('personality') || 'Standard';
+                const tone = getVal('speakingStyle', 'speaking_style') || 'Normal';
+                const ending = getVal('ending') || '';
+                const role = getVal('role') || 'NPC';
+
+                targetRole = role;
+
                 if (nEnv.affection?.value !== undefined) targetAffection = Number(nEnv.affection.value);
                 else if (nEnv.affection !== undefined) targetAffection = Number(nEnv.affection);
                 else if (nEnv.likability?.value !== undefined) targetAffection = Number(nEnv.likability.value);
 
+                // Add to contextData for template use
+                Object.assign(contextData, {
+                    targetRole,
+                    targetPersonality: personality,
+                    targetTone: tone,
+                    targetFirstPerson: firstPerson,
+                    targetEnding: ending
+                });
+
                 contextData.targetProfile = `
 Name: ${npcEntity.name}
 Role: ${targetRole}
-Personality: ${profile.personality || 'Standard'}
+Personality: ${personality}
 First Person: ${firstPerson}
-Tone: ${profile.speaking_style || 'Normal'}
+Speaking Style: ${tone}
+Sentence Ending: ${ending}
                 `.trim();
             }
         }
@@ -460,8 +481,62 @@ Reaction: Show rejection, disgust, or refusal to comply. Do NOT perform the requ
     if (systemPromptPath) systemPrompt = fs.readFileSync(systemPromptPath, 'utf-8');
 
     // INJECT DYNAMIC CONTEXT
-    // We append the dynamic context to the system prompt
-    dynamicContext += `
+    // Check if user_prompt.md exists to use as the robust Prompt Template
+    let userPromptPath = '';
+    const possibleUserPaths = [
+        path.join(__dirname, 'prompts', 'user_prompt.md'),
+        path.join(process.cwd(), 'main', 'prompts', 'user_prompt.md'),
+        path.join(process.cwd(), 'frontend', 'main', 'prompts', 'user_prompt.md'),
+    ];
+    for (const p of possibleUserPaths) {
+        if (fs.existsSync(p)) { userPromptPath = p; break; }
+    }
+
+    let messagesForLlm = [];
+
+    if (userPromptPath) {
+        logToFile("[Chat] Using User Prompt Template:", userPromptPath);
+        const t = new PromptTemplate(userPromptPath);
+
+        // Fetch History for injection
+        let historyText = "(No history)";
+        if (worldId) {
+            const recentChats = await prisma.chat.findMany({
+                where: { worldId },
+                orderBy: { id: 'desc' },
+                take: 20,
+                include: { entity: true }
+            });
+            // Skip the first one (latest) as it is the current user input
+            historyText = recentChats.slice(1).reverse().map((c: any) => {
+                let name = 'NPC';
+                if (c.chatType === '1') name = 'Player';
+                else if (c.chatType === '2') name = c.entity?.name || 'NPC';
+                else name = 'System';
+                return `[${name}]: ${c.message}`;
+            }).join('\n');
+        }
+
+        const renderedUserPrompt = t.render({
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            ...(contextData as any), // Cast to access new props
+            worldTime: `Day ${contextData.day}, ${contextData.timeOfDay}`,
+            location: contextData.locationName,
+            weather: contextData.weather,
+            playerName: 'Player',
+            playerCondition: 'Normal',
+            conversationHistory: historyText,
+            userInput: message
+        });
+
+        messagesForLlm = [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: renderedUserPrompt }
+        ];
+
+    } else {
+        // Fallback: Old Dynamic Context Injection
+        dynamicContext += `
 [Current Situation]
 Location: ${contextData.locationName}
 Description: ${contextData.locationDesc}
@@ -476,47 +551,40 @@ ${contextData.targetProfile ? `Profile:\n${contextData.targetProfile}` : ''}
 2. **USE HISTORY**: Refer to the previous conversation history context to maintain continuity.
 3. **ATMOSPHERE**: Reflect the current location and situation in your response.
 4. **FORMAT**: Follow the [System] format (Italics for actions, Text for speech).
-    `.trim();
+        `.trim();
 
-    systemPrompt += `\n\n${dynamicContext}`;
+        systemPrompt += `\n\n${dynamicContext}`;
+
+        // [HISTORY FIX] Fetch history from DB
+        const historyMsgs = await (async () => {
+            if (!worldId) return [];
+            const recentChats = await prisma.chat.findMany({
+                where: { worldId },
+                orderBy: { id: 'desc' },
+                take: 20,
+                include: { entity: true }
+            });
+            return recentChats.reverse().map((c: any) => {
+                let role = 'user';
+                let speakerName = 'Unknown';
+                if (c.chatType === '1') { role = 'user'; speakerName = 'Player'; }
+                else if (c.chatType === '2') { role = 'assistant'; speakerName = c.entity?.name || 'Unknown'; }
+                else if (c.chatType === '0') { role = 'system'; speakerName = 'System'; }
+                return {
+                    role: role,
+                    content: `[${speakerName}]: ${c.message}`
+                };
+            });
+        })();
+
+        messagesForLlm = [
+            { role: 'system', content: systemPrompt },
+            ...historyMsgs
+        ];
+    }
 
     const genPayload = {
-        messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'system', content: systemPrompt },
-            // [HISTORY FIX] Fetch history from DB instead of using client-side history
-            ...(await (async () => {
-                if (!worldId) return [];
-                const recentChats = await prisma.chat.findMany({
-                    where: { worldId },
-                    orderBy: { id: 'desc' }, // Get latest first
-                    take: 20,
-                    include: { entity: true }
-                });
-                // Reverse to chronological order and map
-                return recentChats.reverse().map((c: any) => {
-                    let role = 'user';
-                    let speakerName = 'Unknown';
-
-                    if (c.chatType === '1') { // Player
-                        role = 'user';
-                        speakerName = 'Player';
-                    } else if (c.chatType === '2') { // NPC
-                        role = 'assistant';
-                        speakerName = c.entity?.name || 'Unknown';
-                    } else if (c.chatType === '0') { // System
-                        role = 'system';
-                        speakerName = 'System';
-                    }
-
-                    // Format content with speaker identity
-                    return {
-                        role: role,
-                        content: `[${speakerName}]: ${c.message}`
-                    };
-                });
-            })()),
-        ],
+        messages: messagesForLlm,
         model: generatorConfig.model,
         temperature: cfg.temperature // Use config temperature
     };

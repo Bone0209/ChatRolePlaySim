@@ -59,6 +59,8 @@ NPCの環境データはフラットなJSONオブジェクトで構築されま�
       "personality": { "value": "性格詳細（30文字程度）", "category": "persona", "visible": false },
       "background": { "value": "背景・過去（100文字程度）", "category": "persona", "visible": false },
       "speakingStyle": { "value": "話し方（例: 敬語、古風、生意気）", "category": "persona", "visible": false },
+      "firstPerson": { "value": "一人称（例: 私、ボク、俺、我、わらわ）", "category": "persona", "visible": true },
+      "ending": { "value": "語尾（例: です・ます、だ・である、～じゃ、～だね）", "category": "persona", "visible": true },
 
       "maxHp": { "value": 100, "category": "parameter", "visible": false },
       "maxMp": { "value": 50, "category": "parameter", "visible": false },
