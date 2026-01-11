@@ -248,14 +248,48 @@ ipcMain.handle('chat', async (event, { message, history = [], targetId, worldId 
                     targetGender: gender
                 });
 
-                contextData.targetProfile = `
-Name: ${npcEntity.name}
-Role: ${targetRole}
-Personality: ${personality}
-First Person: ${firstPerson}
-Speaking Style: ${tone}
-Sentence Ending: ${ending}
-                `.trim();
+                // Generate Full Profile dynamically
+                const profileLines = [];
+                // Sort keys for stability?
+                const keys = Object.keys(nEnv).sort();
+
+                // Prioritize important keys for top of details
+                const priorityKeys = ['name', 'race', 'gender', 'ageGroup', 'role', 'personality', 'tone', 'speakingStyle', 'firstPerson', 'ending'];
+
+                // Add specific formatted fields first
+                profileLines.push(`**Name**: ${npcEntity.name}`);
+
+                // Add all other environment properties
+                for (const key of keys) {
+                    if (key === 'name') continue; // Already added
+                    const valObj = nEnv[key];
+                    // Handle both new structure { value, ... } and legacy raw values
+                    let val = valObj;
+                    let visible = true; // Default to true if simple value
+
+                    if (valObj && typeof valObj === 'object' && valObj.value !== undefined) {
+                        val = valObj.value;
+                        visible = valObj.visible !== false;
+                    }
+
+                    // User requested "ALL" data, so we include even hidden data like personality/thresholds
+                    // We can mark them as [Secret] or just list them.
+                    // Given this is the PROMPT for the AI acting as the NPC, it NEEDS to know hidden stats.
+
+                    if (val !== undefined && val !== null && val !== '') {
+                        // Format the key to be readable (camelCase to Title Case)
+                        const readableKey = key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase());
+                        profileLines.push(`**${readableKey}**: ${val}`);
+                    }
+                }
+
+                contextData.targetProfile = profileLines.join('\n');
+
+                // Keep keeping specific keys in contextData for legacy prompt support if needed,
+                // but targetProfile will be the main source of truth.
+                Object.assign(contextData, {
+                    targetGender: gender
+                });
             }
         }
 

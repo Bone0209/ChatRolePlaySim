@@ -15,14 +15,7 @@ Your goal is to provide immersive, character-driven responses that adhere to the
 ## Target Character Profile
 You are roleplaying as **{{targetName}}**.
 
-| Attribute | Details |
-| **Gender** | {{targetGender}} |
-| **Role** | {{targetRole}} |
-| **Affection** | {{targetAffection}} / 1000 |
-| **Personality** | {{targetPersonality}} |
-| **Tone/Voice** | {{targetTone}} |
-| **First Person** | {{targetFirstPerson}} |
-| **Sentence Ending** | {{targetEnding}} |
+{{targetProfile}}
 
 > [!IMPORTANT]
 > **Character Voice Implementation**
