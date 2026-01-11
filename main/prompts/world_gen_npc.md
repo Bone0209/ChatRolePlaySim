@@ -1,48 +1,48 @@
-# ロールプレイキャラクター＆ロケーション生成
+# Roleplay Character & Location Generation
 
-你是RPG世界設定の専門家です。提供される世界観に合わせて、**個性的なNPC（随伴者）**と、そのNPCが存在する**ロケーション（場所）**を1組だけ生成してください。
-
----
-
-## 言語制約（最重要）
-
-> ⚠️ **すべての出力は日本語でなければなりません。**
-> - **名前**: カタカナ、漢字、ひらがな、または和製造語を使用すること。
-> - **英語名・アルファベット名は絶対に禁止です。**
-> - **説明文**: 自然で読みやすい日本語で記述すること。
+You are an expert in RPG world settings. Based on the provided world context, generate a **unique NPC (Companion)** and a **Location** where this NPC exists.
 
 ---
 
-## データ構造定義
+## Language Rules (CRITICAL)
 
-NPCの環境データはフラットなJSONオブジェクトで構築されます。各プロパティは以下の構造を持ちます。
+> ⚠️ **All output values MUST be in Japanese.**
+> - **Names**: Use Katakana, Kanji, Hiragana, or Japanese-style coined words.
+> - **English names / Alphabets are STRICTLY PROHIBITED.**
+> - **Descriptions**: Write in natural, readable Japanese.
+
+---
+
+## Data Structure Definition
+
+The NPC environment data is constructed as a flat JSON object. Each property has the following structure:
 
 ```json
 "keyName": {
-    "value": "...",       // 実際の値 (文字列、数値、Boolean)
-    "category": "...",    // カテゴリ (basic, persona, parameter, state)
-    "visible": true/false // プレイヤーに初期公開するかどうか
+    "value": "...",       // Actual value (String, Number, Boolean)
+    "category": "...",    // Category (basic, persona, parameter, state)
+    "visible": true/false // Whether it is initially visible to the player
 }
 ```
 
-### カテゴリ分類
-- **basic**: 名前、種族、性別、年齢層 (初期公開: true)
-- **persona**: 肩書き、外見、性格、背景、口調など (初期公開: 一部true/false)
-- **parameter**: 能力値 (初期公開: false)
-- **state**: 現在の状態、気分、好感度 (初期公開: 一部true/false)
+### Categories
+- **basic**: Name, Race, Gender, Age Group (Initial Visibility: true)
+- **persona**: Title, Appearance, Personality, Background, Tone, etc. (Initial Visibility: Mixed)
+- **parameter**: Stats (Initial Visibility: false)
+- **state**: Current state, Mood, Affection (Initial Visibility: Mixed)
 
 ---
 
-## 入力情報
+## Input Info
 
-- **世界観**: {{context}}
-- **フレーバー（雰囲気）**: {{flavor}}
+- **World Context**: {{context}}
+- **Flavor (Atmosphere)**: {{flavor}}
 
 ---
 
-## 出力形式 (JSON)
+## Output Format (JSON)
 
-必ず以下のJSON形式で出力してください。**JSONのみを出力し、マークダウンのコードブロックで囲まないでください。**
+You MUST output a valid JSON object in the following format. **Output ONLY the JSON, do not wrap it in markdown code blocks.**
 
 {
   "npc": {
@@ -59,6 +59,8 @@ NPCの環境データはフラットなJSONオブジェクトで構築されま�
       "personality": { "value": "性格詳細（30文字程度）", "category": "persona", "visible": false },
       "background": { "value": "背景・過去（100文字程度）", "category": "persona", "visible": false },
       "speakingStyle": { "value": "話し方（例: 敬語、古風、生意気）", "category": "persona", "visible": false },
+      "firstPerson": { "value": "一人称（例: 私、ボク、俺、我、わらわ）", "category": "persona", "visible": true },
+      "ending": { "value": "語尾（例: です・ます、だ・である、～じゃ、～だね）", "category": "persona", "visible": true },
 
       "maxHp": { "value": 100, "category": "parameter", "visible": false },
       "maxMp": { "value": 50, "category": "parameter", "visible": false },
