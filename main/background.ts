@@ -718,8 +718,7 @@ ${contextData.targetProfile ? `Profile:\n${contextData.targetProfile}` : ''}
                     const afPayload = {
                         messages: [{ role: 'user', content: afPrompt }],
                         model: analyzerConfig.model,
-                        temperature: 0.1,
-                        response_format: { type: "json_object" }
+                        temperature: 0.1
                     };
 
                     logToFile("[Chat] Calling Affection Judgment API...");
@@ -739,8 +738,20 @@ ${contextData.targetProfile ? `Profile:\n${contextData.targetProfile}` : ''}
                             const afData: any = JSON.parse(afText);
                             let afContent = afData.choices?.[0]?.message?.content || "{}";
 
-                            // Clean markdown
-                            afContent = afContent.replace(/^```json\s?/, '').replace(/```$/, '').trim();
+                            // Robust Extraction Strategy
+                            const jsonBlock = afContent.match(/```json\s*([\s\S]*?)\s*```/);
+                            if (jsonBlock) {
+                                afContent = jsonBlock[1].trim();
+                            } else {
+                                // Fallback: try to find the first '{' and last '}'
+                                const start = afContent.indexOf('{');
+                                const end = afContent.lastIndexOf('}');
+                                if (start !== -1 && end !== -1 && end > start) {
+                                    afContent = afContent.substring(start, end + 1);
+                                }
+                                // If plain text, might strip markdown delimiters if present at edges
+                                afContent = afContent.replace(/^```json\s?/, '').replace(/```$/, '').trim();
+                            }
 
                             const afResult = JSON.parse(afContent);
                             logToFile("[Chat] Affection Result:", afResult);
