@@ -12,5 +12,6 @@ contextBridge.exposeInMainWorld('electron', {
         processAction: (mode: string, content: string, worldId: string) => ipcRenderer.invoke('game:process-action', { mode, content, worldId }),
         getState: (worldId: string) => ipcRenderer.invoke('game:get-state', worldId),
         getChatHistory: (worldId: string) => ipcRenderer.invoke('game:get-chat-history', worldId),
+        getEntity: (entityId: string) => ipcRenderer.invoke('game:get-entity', entityId),
     }
 });

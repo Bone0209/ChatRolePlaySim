@@ -1,6 +1,6 @@
 # ロールプレイキャラクター＆ロケーション生成
 
-あなたはRPG世界設定の専門家です。提供される世界観に合わせて、**個性的なNPC（随伴者）**と、そのNPCが存在する**ロケーション（場所）**を1組だけ生成してください。
+你是RPG世界設定の専門家です。提供される世界観に合わせて、**個性的なNPC（随伴者）**と、そのNPCが存在する**ロケーション（場所）**を1組だけ生成してください。
 
 ---
 
@@ -13,29 +13,23 @@
 
 ---
 
-## キャラクター名の例
+## データ構造定義
 
-ありきたりな名前（ルナ、レイ、アリス等）は避け、以下のようなバリエーションを参考にしてください：
+NPCの環境データはフラットなJSONオブジェクトで構築されます。各プロパティは以下の構造を持ちます。
 
-| パターン | 例 |
-|---|---|
-| 和風 | 楓、凛、悠斗、朔夜、水無月、雪乃 |
-| カタカナ造語 | リィンカ、ヴァルキア、ゼノリス、フィーネ、エルシア |
-| 漢字＋カタカナ | 蒼馬ユキト、神楽アイリ、司馬リン |
-| 異国風（日本語表記） | クロエ、アシュレイ、ミハイル、カタリナ |
+```json
+"keyName": {
+    "value": "...",       // 実際の値 (文字列、数値、Boolean)
+    "category": "...",    // カテゴリ (basic, persona, parameter, state)
+    "visible": true/false // プレイヤーに初期公開するかどうか
+}
+```
 
----
-
-## ロケーション名の例
-
-場所の名前も世界観に合わせて日本語で命名してください：
-
-| パターン | 例 |
-|---|---|
-| 和風 | 月影の社、朽ちた茶屋、霧隠れの里 |
-| カタカナ造語 | フェルノーク街道、エルディア広場、ヴァルムの洞窟 |
-| 漢字＋カタカナ | 聖都アルカディア、南方港グリスタ、廃城ローゼンハイム |
-| 説明的 | 忘れられた神殿、旅人の集う宿場、崩れかけた橋 |
+### カテゴリ分類
+- **basic**: 名前、種族、性別、年齢層 (初期公開: true)
+- **persona**: 肩書き、外見、性格、背景、口調など (初期公開: 一部true/false)
+- **parameter**: 能力値 (初期公開: false)
+- **state**: 現在の状態、気分、好感度 (初期公開: 一部true/false)
 
 ---
 
@@ -48,36 +42,42 @@
 
 ## 出力形式 (JSON)
 
-必ず以下のJSON形式で出力してください。**JSONのみを出力し、マークダウンのコードブロック(\`\`\`)で囲まないでください。**
+必ず以下のJSON形式で出力してください。**JSONのみを出力し、マークダウンのコードブロックで囲まないでください。**
 
 {
   "npc": {
-    "name": "キャラクター名（日本語）",
-    "age": "年齢（数字または不詳）",
-    "gender": "性別",
-    "role": "役割・肩書き（例: 放浪の剣士、記憶をなくした旅人、街の案内人）",
-    "personality": "性格の詳細（50文字程度）",
-    "first_person": "一人称（例: 私、俺、僕、我、アタシ）",
-    "speaking_style": "話し方の特徴（例: 敬語、ぶっきらぼう、古風、〜じゃ、〜だぜ）",
-    "background": "このキャラクターがプレイヤーと出会った状況・経緯（100文字程度）"
+    "environment": {
+      "name": { "value": "キャラクター名（日本語）", "category": "basic", "visible": true },
+      "race": { "value": "種族（例: 人間、エルフ、機械人形）", "category": "basic", "visible": true },
+      "gender": { "value": "性別", "category": "basic", "visible": true },
+      "ageGroup": { "value": "年齢層（例: 少年、若者、老人、不詳）", "category": "basic", "visible": true },
+
+      "title": { "value": "肩書き・職業", "category": "persona", "visible": true },
+      "appearance": { "value": "外見描写（50文字程度）", "category": "persona", "visible": true },
+      "publicQuote": { "value": "代表的なセリフ・口癖", "category": "persona", "visible": true },
+      "role": { "value": "物語上の役割（例: 案内人、護衛、謎の賢者）", "category": "persona", "visible": false },
+      "personality": { "value": "性格詳細（30文字程度）", "category": "persona", "visible": false },
+      "background": { "value": "背景・過去（100文字程度）", "category": "persona", "visible": false },
+      "speakingStyle": { "value": "話し方（例: 敬語、古風、生意気）", "category": "persona", "visible": false },
+
+      "maxHp": { "value": 100, "category": "parameter", "visible": false },
+      "maxMp": { "value": 50, "category": "parameter", "visible": false },
+      "strength": { "value": 10, "category": "parameter", "visible": false },
+      "intelligence": { "value": 10, "category": "parameter", "visible": false },
+      "dexterity": { "value": 10, "category": "parameter", "visible": false },
+      "charisma": { "value": 10, "category": "parameter", "visible": false },
+      "isCombative": { "value": true/false, "category": "parameter", "visible": false },
+
+      "currentHp": { "value": 100, "category": "state", "visible": true },
+      "currentMp": { "value": 50, "category": "state", "visible": true },
+      "condition": { "value": "健康", "category": "state", "visible": true },
+      "mood": { "value": "通常の気分", "category": "state", "visible": true },
+      "affection": { "value": 30, "category": "state", "visible": false }
+    }
   },
   "location": {
     "name": "場所の名前（日本語）",
-    "type": "場所の種類（例: 廃墟の教会、賑やかな市場、静寂の森）",
-    "description": "場所の雰囲気や特徴的な描写（100文字程度）"
+    "type": "場所の種類",
+    "description": "場所の描写（100文字程度）"
   }
 }
-```
-
----
-
-## 禁止事項
-
-- ❌ 英語名・アルファベット名の使用（Luna, Alice, Forest of Shadowsなど）
-- ❌ JSONの外にテキストを出力すること（前置き、解説、確認文など）
-- ❌ `assistant` や `final` などのシステムトークンを出力すること
-
----
-
-## 出力
-

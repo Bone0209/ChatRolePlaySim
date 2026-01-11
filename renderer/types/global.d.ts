@@ -10,6 +10,16 @@ declare global {
         createdAt?: string | Date;
     }
 
+    interface NpcProperty<T = any> {
+        value: T;
+        visible: boolean;
+        category: 'basic' | 'persona' | 'parameter' | 'state';
+    }
+
+    interface NpcEnvironment {
+        [key: string]: NpcProperty | any;
+    }
+
     interface Window {
         electron?: {
             launchChat: (worldId: string) => void;
@@ -23,7 +33,9 @@ declare global {
                 processAction: (mode: string, content: string, worldId: string) => Promise<any>;
                 getState: (worldId: string) => Promise<any>;
                 getChatHistory: (worldId: string) => Promise<any[]>;
+                getEntity: (entityId: string) => Promise<any>;
             };
         };
     }
 }
+

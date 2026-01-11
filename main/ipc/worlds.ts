@@ -248,23 +248,29 @@ export const registerWorldHandlers = () => {
                         });
 
                         // 2. Create NPC Entity
+                        // npcData is now { npc: { environment: { ... } }, location: { ... } }
+                        const npcEnvironment = npcData.npc.environment || {};
+
+                        // Ensure name is extracted correctly for top-level name field
+                        const npcName = npcEnvironment.name?.value || 'Unknown NPC';
+                        const npcDesc = npcEnvironment.role?.value || npcEnvironment.title?.value || 'NPC';
+
+                        // Inject location into NPC state
+                        npcEnvironment.locationName = { value: npcData.location.name, category: 'state', visible: true };
+                        npcEnvironment.locationId = { value: locationId, category: 'state', visible: true };
+
                         entitiesToCreate.push({
                             type: 'ENTITY_NPC',
-                            name: npcData.npc.name || 'Unknown NPC',
-                            description: npcData.npc.role,
-                            environment: {
-                                hp: 100, // Default stats
-                                max_hp: 100,
-                                role: npcData.npc.role,
-                                dialogue_state: 'normal',
-                                locationId: locationId, // Link to Location
-                                profile: npcData.npc
-                            }
+                            name: npcName,
+                            description: npcDesc,
+                            environment: npcEnvironment
                         });
 
                         // 3. Update Player Location to match the first generated location
                         const playerEntity = entitiesToCreate.find(e => e.type === 'ENTITY_PLAYER');
                         if (playerEntity) {
+                            // Player uses different structure for now, or could be unified later.
+                            // Keeping minimal update for player to avoid breaking valid structure if it differs.
                             playerEntity.environment.location = npcData.location.name;
                             playerEntity.environment.locationId = locationId;
                             console.log(`[IPC] Player spawned at ${npcData.location.name} (${locationId})`);

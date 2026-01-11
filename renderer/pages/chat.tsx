@@ -24,7 +24,111 @@ interface Message {
     emotion?: string;
     sender: 'user' | 'bot';
     senderName: string;
+    entityId?: string;
 }
+
+interface NpcProperty<T = any> {
+    value: T;
+    visible: boolean;
+    category: 'basic' | 'persona' | 'parameter' | 'state';
+}
+
+const CharacterDetailsModal = ({ entity, onClose }: { entity: any, onClose: () => void }) => {
+    if (!entity) return null;
+
+    const env = entity.environment || {};
+    // Helper to extract value safely
+    const getVal = (key: string) => {
+        const prop = env[key];
+        if (prop && typeof prop === 'object' && 'value' in prop) return prop.value;
+        return prop;
+    };
+
+    // Helper to get visibility
+    const isVisible = (key: string) => {
+        const prop = env[key];
+        if (prop && typeof prop === 'object' && 'visible' in prop) return prop.visible;
+        // Default fallbacks if simplified structure
+        return true;
+    };
+
+    // Flatten properties for display
+    const groups = {
+        basic: [] as any[],
+        persona: [] as any[],
+        parameter: [] as any[],
+        state: [] as any[],
+        other: [] as any[]
+    };
+
+    Object.entries(env).forEach(([key, prop]: [string, any]) => {
+        if (key === 'knownDetails') return; // Skip internal list
+
+        let category = 'other';
+        let value = prop;
+        let visible = true;
+
+        if (prop && typeof prop === 'object' && 'category' in prop) {
+            category = prop.category;
+            value = prop.value;
+            visible = prop.visible;
+        } else {
+            // Guess category if not explicit (legacy support)
+            if (['name', 'race', 'gender', 'ageGroup'].includes(key)) category = 'basic';
+            else if (['title', 'appearance', 'publicQuote'].includes(key)) category = 'persona';
+            else if (['maxHp', 'strength', 'intelligence'].includes(key)) category = 'parameter';
+            else if (['currentHp', 'mood', 'condition'].includes(key)) category = 'state';
+        }
+
+        // Check if explicitly hidden AND not unlocked
+        if (!visible) {
+            // TODO: Check 'knownDetails' or similar to see if unlocked. 
+            // For now, if hidden, show "???" or skip?
+            // User requested "Show Public Info", implying we hide private.
+            // But maybe we show "???" for parameters?
+            // Let's store it but mark as hidden for rendering logic
+        }
+
+        groups[category as keyof typeof groups]?.push({ key, value, visible });
+    });
+
+    const renderSection = (title: string, items: any[]) => {
+        if (!items || items.length === 0) return null;
+        const visibleItems = items.filter(i => i.visible); // Only show visible
+        if (visibleItems.length === 0) return null;
+
+        return (
+            <div className="mb-4">
+                <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2 border-b border-white/10 pb-1">{title}</h3>
+                <div className="grid grid-cols-1 gap-2">
+                    {visibleItems.map((item) => (
+                        <div key={item.key} className="flex flex-col text-sm">
+                            <span className="text-zinc-500 text-xs capitalize">{item.key}</span>
+                            <span className="text-zinc-200">{String(item.value)}</span>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        );
+    };
+
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4" onClick={onClose}>
+            <div className="bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl max-w-md w-full max-h-[85vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
+                <div className="p-4 border-b border-white/10 flex justify-between items-center bg-zinc-800">
+                    <h2 className="text-lg font-bold text-white">{getVal('name') || entity.name}</h2>
+                    <Button variant="ghost" size="icon" onClick={onClose} className="h-6 w-6"><X size={16} /></Button>
+                </div>
+                <div className="p-4 overflow-y-auto">
+                    {renderSection("Basic Info", groups.basic)}
+                    {renderSection("Persona", groups.persona)}
+                    {renderSection("Status", groups.state)}
+                    {renderSection("Parameters", groups.parameter)}
+                </div>
+            </div>
+        </div>
+    );
+};
 
 // Types are now global in renderer/types/global.d.ts
 
@@ -338,22 +442,7 @@ const SidePanelStatus = ({ gameState }: { gameState: GameState }) => {
 
 export default function Home() {
     const router = useRouter();
-    const [messages, setMessages] = useState<Message[]>([
-        {
-            id: 1,
-            text: '# 見出しテスト\n\nこれは**太字**のテストです。\n\nこれは*イタリック*のテストです。\n\nこれは__アンダースコア太字__のテストです。',
-            emotion: '優しく微笑みながら',
-            sender: 'bot',
-            senderName: 'Luna'
-        },
-        ...Array.from({ length: 15 }).map((_, i) => ({
-            id: i + 2,
-            text: `これはテストメッセージ ${i + 1} です。\n長い文章のテストも兼ねています。スクロールや表示崩れがないか確認してください。\n\n- リストアイテム 1\n- リストアイテム 2`,
-            emotion: i % 2 === 0 ? '真剣な表情で' : '楽しそうに',
-            sender: i % 3 === 0 ? 'user' : 'bot',
-            senderName: i % 3 === 0 ? 'Player' : 'Luna'
-        })) as Message[]
-    ]);
+    const [messages, setMessages] = useState<Message[]>([]);
     const [inputText, setInputText] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [commandMode, setCommandMode] = useState<CommandMode>(COMMAND_MODES[0]);
@@ -368,6 +457,33 @@ export default function Home() {
 
     // Show all widgets by default
     const [activeWidgets, setActiveWidgets] = useState<SidePanelContent[]>(['status', 'inventory']);
+
+    // Viewing specific entity details
+    const [viewingEntity, setViewingEntity] = useState<any | null>(null);
+
+    const handleCharacterClick = async (entityId?: string, name?: string) => {
+        if (!entityId && !name) return;
+
+        try {
+            let id = entityId;
+            // If no ID (msg from system/mock), try to find by name in targets
+            if (!id && name && targets.length > 0) {
+                const t = targets.find(t => t.name === name);
+                if (t) id = t.id;
+            }
+
+            if (id && window.electron?.game?.getEntity) {
+                const entity = await window.electron.game.getEntity(id);
+                if (entity) {
+                    setViewingEntity(entity);
+                }
+            } else {
+                console.log("No entity found or getEntity API missing.");
+            }
+        } catch (e) {
+            console.error("Failed to fetch entity details", e);
+        }
+    };
 
     const { worldId } = router.query;
 
@@ -388,6 +504,7 @@ export default function Home() {
                         text: h.content,
                         sender: (h.role === 'user' ? 'user' : 'bot') as 'user' | 'bot',
                         senderName: h.speakerName || (h.role === 'user' ? 'Player' : 'System'),
+                        entityId: h.entityId,
                         emotion: 'normal'
                     }));
                     setMessages(mappedMessages);
@@ -484,7 +601,7 @@ export default function Home() {
 
         try {
             let replyText = "";
-            let replyName = selectedTarget?.name || 'Luna';
+            let replyName = selectedTarget?.name || 'Unknown';
 
             if (window.electron?.chat) {
                 // Prepare History for API
@@ -581,7 +698,10 @@ export default function Home() {
                                     className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}
                                 >
                                     <div className={`flex flex-col ${msg.sender === 'user' ? 'items-end' : 'items-start'} max-w-[90%]`}>
-                                        <span className={`text-xs mb-1 px-1 font-medium ${msg.sender === 'user' ? 'text-blue-400' : 'text-purple-400'}`}>
+                                        <span
+                                            className={`text-xs mb-1 px-1 font-medium ${msg.sender === 'user' ? 'text-blue-400' : 'text-purple-400 cursor-pointer hover:underline'}`}
+                                            onClick={() => msg.sender !== 'user' && handleCharacterClick(msg.entityId, msg.senderName)}
+                                        >
                                             {msg.senderName}
                                         </span>
                                         <Card className="border-none shadow-md overflow-hidden bg-zinc-800 text-zinc-100">
@@ -714,6 +834,11 @@ export default function Home() {
 
                 {/* Right Dock */}
                 <RightDock activeWidgets={activeWidgets} onToggleWidget={toggleWidget} />
+
+                {/* Character Detail Modal */}
+                {viewingEntity && (
+                    <CharacterDetailsModal entity={viewingEntity} onClose={() => setViewingEntity(null)} />
+                )}
             </div>
         </React.Fragment>
     );

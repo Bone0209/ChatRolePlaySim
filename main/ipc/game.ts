@@ -82,14 +82,26 @@ export const registerGameHandlers = () => {
                     // Filter in memory for safety with SQLite JSON
                     npcs = foundNpcs.filter(n => {
                         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                        const nEnv: any = n.environment;
-                        return nEnv?.locationId === locationId;
-                    }).map(n => ({
-                        id: n.id,
-                        name: n.name,
+                        const nEnv: any = n.environment || {};
+
+                        // Handle both old flat structure and new nested structure
+                        // New: locationId: { value: '...', ... }
+                        // Old: locationId: '...'
+                        const nLocId = nEnv.locationId?.value !== undefined ? nEnv.locationId.value : nEnv.locationId;
+
+                        return nLocId === locationId;
+                    }).map(n => {
                         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                        role: (n.environment as any).role || 'NPC'
-                    }));
+                        const nEnv: any = n.environment || {};
+                        // Role extraction
+                        const role = nEnv.role?.value !== undefined ? nEnv.role.value : (nEnv.role || 'NPC');
+
+                        return {
+                            id: n.id,
+                            name: n.name,
+                            role: role
+                        };
+                    });
                 }
             }
         } catch (e) {
@@ -98,6 +110,21 @@ export const registerGameHandlers = () => {
 
         return { totalSteps, day, timeOfDay, currentStep, locationName, locationId, npcs };
     };
+
+    // Handler: Get Entity Details
+    ipcMain.handle('game:get-entity', async (event, entityId: string) => {
+        if (!prisma) throw new Error('Database not initialized');
+        if (!entityId) return null;
+        try {
+            const entity = await prisma.entity.findUnique({
+                where: { id: entityId }
+            });
+            return entity;
+        } catch (e) {
+            console.error("Failed to fitches entity:", e);
+            throw e;
+        }
+    });
 
     // Handler: Get Current Game State
     ipcMain.handle('game:get-state', async (event, worldId) => {
@@ -195,7 +222,8 @@ export const registerGameHandlers = () => {
                 return {
                     role,
                     content: c.message,
-                    speakerName
+                    speakerName,
+                    entityId: c.entityId
                 };
             });
         } catch (e) {
