@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useRouter } from 'next/router';
 import Head from 'next/head';
 import { Card, CardContent } from '@/components/ui/card';
 import { CollapsibleCard } from '@/components/CollapsibleCard';
@@ -8,11 +9,15 @@ export default function Status() {
     // State
     const [gameState, setGameState] = useState({ totalSteps: 0, day: 1, timeOfDay: 'Morning', currentStep: 0 });
 
+    const router = useRouter();
+    const { worldId } = router.query;
+
     useEffect(() => {
+        if (!worldId) return;
         if (window.electron?.game?.getState) {
-            window.electron.game.getState().then(setGameState).catch(console.error);
+            window.electron.game.getState(worldId as string).then(setGameState).catch(console.error);
         }
-    }, []);
+    }, [worldId]);
 
     // Converted to generic list structure
     const statusItems = [

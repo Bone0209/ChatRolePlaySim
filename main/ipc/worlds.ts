@@ -3,6 +3,7 @@ import prisma from '../lib/prisma';
 import { generateId } from '../lib/uuid';
 import { getAppConfig } from '../lib/config';
 import { PromptTemplate } from '../lib/PromptTemplate';
+import { logLlmRequest, logLlmResponse } from '../lib/logger';
 import path from 'path';
 import fs from 'fs';
 import { app } from 'electron';
@@ -167,6 +168,7 @@ export const registerWorldHandlers = () => {
                             };
 
                             console.log(`[IPC] Sending JSON request to ${providerConfig.baseUrl}...`);
+                            logLlmRequest(providerConfig.baseUrl, providerConfig.model, userPrompt);
 
                             const controller = new AbortController();
                             const timeoutId = setTimeout(() => controller.abort(), 300000); // 300 sec timeout (5 min)
@@ -187,6 +189,7 @@ export const registerWorldHandlers = () => {
                                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
                                     const data: any = await response.json();
                                     let content = data.choices?.[0]?.message?.content || "{}";
+                                    logLlmResponse(content);
                                     console.log("[IPC] AI Response received.");
 
                                     // Cleanup Thinking models (assistantfinal / <thought>) strategies
@@ -379,6 +382,7 @@ export const registerWorldHandlers = () => {
             };
 
             console.log(`[IPC] Calling Generation API (${providerConfig.baseUrl})...`);
+            logLlmRequest(providerConfig.baseUrl, providerConfig.model, JSON.stringify(payload, null, 2));
             const response = await fetchWithTimeout(`${providerConfig.baseUrl}/chat/completions`, {
                 method: 'POST',
                 headers: {
@@ -395,6 +399,7 @@ export const registerWorldHandlers = () => {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const data: any = await response.json();
             let content = data.choices?.[0]?.message?.content || "";
+            logLlmResponse(content);
 
             // Cleanup Thinking models (assistantfinal / <thought>) strategies
             // Some keys: assistantfinal
