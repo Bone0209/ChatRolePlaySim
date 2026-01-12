@@ -2,12 +2,12 @@ import { app, BrowserWindow, ipcMain, screen } from 'electron';
 import serve from 'electron-serve';
 import path from 'path';
 import fs from 'fs';
-import { PromptTemplate } from './lib/PromptTemplate';
-import prisma from './lib/prisma';
+import { PromptTemplate } from './infrastructure/prompts';
+import prisma from './infrastructure/database/prisma';
 import { registerWorldHandlers } from './ipc/worlds';
 import { registerGameHandlers } from './ipc/game';
-import { logLlmRequest, logLlmResponse } from './lib/logger';
-import { updateEntityVariable } from './lib/entityUtils';
+import { logLlmRequest, logLlmResponse } from './infrastructure/logging';
+import { PrismaEntityRepository } from './infrastructure/repositories';
 
 const loadURL = serve({ directory: 'renderer/out' });
 
@@ -20,7 +20,7 @@ const isDev = process.env.NODE_ENV === 'development';
 const DEFAULT_DIMENSIONS = { width: 1280, height: 800 };
 
 // -- Config Loading --
-import { getAppConfig } from './lib/config';
+import { getAppConfig } from './infrastructure/config';
 
 let config = getAppConfig(); // Initial load for startup logging
 console.log('Loaded config:', config);
@@ -814,15 +814,12 @@ ${contextData.targetProfile ? `Profile:\n${contextData.targetProfile}` : ''}
                             if (afResult.affection_delta && afResult.affection_delta !== 0) {
                                 const newAffection = currentAffection + Number(afResult.affection_delta);
 
-                                // Update DB (T_ & H_)
+                                // Update DB (T_ & H_) via Repository
                                 try {
-                                    await updateEntityVariable(
-                                        targetId,
-                                        'state',
-                                        'affection',
-                                        newAffection,
-                                        'vis_private'
-                                    );
+                                    const entityRepo = new PrismaEntityRepository();
+                                    const { ParameterValue, Visibility } = await import('./domain/value-objects');
+                                    const newValue = ParameterValue.create(newAffection, Visibility.private());
+                                    await entityRepo.updateParameter(targetId, 'state', 'affection', newValue);
                                     logToFile(`[Chat] Updated Affection: ${currentAffection} -> ${newAffection} (Reason: ${afResult.reason})`);
                                 } catch (e) {
                                     console.error("Failed to update affection:", e);

@@ -472,7 +472,7 @@ export default function Home() {
         const loadInitialState = async () => {
             try {
                 // 1. Load History
-                const history = await window.electron.game.getChatHistory(worldId as string);
+                const history = await window.electron?.game.getChatHistory(worldId as string);
                 if (isMounted && history && history.length > 0) {
                     // Map DB history to UI Message type
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -488,7 +488,7 @@ export default function Home() {
                 }
 
                 // 2. Load World State (Time/Location)
-                const state = await window.electron.game.getState(worldId as string);
+                const state = await window.electron?.game.getState(worldId as string);
                 if (isMounted && state) {
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     const s = state as any;

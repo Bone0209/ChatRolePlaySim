@@ -1,6 +1,6 @@
 
 import { ipcMain } from 'electron';
-import prisma from '../lib/prisma';
+import prisma from '../infrastructure/database/prisma';
 
 // Constants
 const STEPS_PER_DAY = 100000; // 1日あたりのUnit数 (変更前: 30)

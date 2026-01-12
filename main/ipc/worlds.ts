@@ -1,9 +1,9 @@
 import { ipcMain } from 'electron';
-import prisma from '../lib/prisma';
-import { generateId } from '../lib/uuid';
-import { getAppConfig } from '../lib/config';
-import { PromptTemplate } from '../lib/PromptTemplate';
-import { logLlmRequest, logLlmResponse } from '../lib/logger';
+import prisma from '../infrastructure/database/prisma';
+import { generateId } from '../infrastructure/utils';
+import { getAppConfig } from '../infrastructure/config';
+import { PromptTemplate } from '../infrastructure/prompts';
+import { logLlmRequest, logLlmResponse } from '../infrastructure/logging';
 import path from 'path';
 import fs from 'fs';
 import { app } from 'electron';

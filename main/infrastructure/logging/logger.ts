@@ -1,3 +1,7 @@
+/**
+ * logger.ts - LLMリクエスト/レスポンスのロギング
+ */
+
 import fs from 'fs';
 import path from 'path';
 import { app } from 'electron';
@@ -10,30 +14,35 @@ const logDir = isDev
 if (!fs.existsSync(logDir)) {
     fs.mkdirSync(logDir, { recursive: true });
 }
+
 const logPath = path.join(logDir, 'llm.log');
 console.log(`[Logger] Initialize: ${logPath}`);
 
-const getCurrentTimestamp = () => new Date().toISOString();
+const getCurrentTimestamp = (): string => new Date().toISOString();
 
-export const logLlmRequest = (url: string, model: string, prompt: string) => {
+/**
+ * LLMリクエストをログに記録
+ */
+export const logLlmRequest = (url: string, model: string, prompt: string): void => {
     const timestamp = getCurrentTimestamp();
-    // Escape newlines in prompt for single-line log or keep as block?
-    // User probably wants to read it, so keeping newlines might be better but separated.
     const logEntry = `
 [${timestamp}] [REQ]
 URL: ${url}
 Model: ${model}
 Payload:
 ${prompt}
-    --------------------------------------------------
-        `;
+--------------------------------------------------
+`;
     fs.appendFileSync(logPath, logEntry);
 };
 
-export const logLlmResponse = (response: string) => {
+/**
+ * LLMレスポンスをログに記録
+ */
+export const logLlmResponse = (response: string): void => {
     const timestamp = getCurrentTimestamp();
     const logEntry = `
-        [${timestamp}][RES]
+[${timestamp}] [RES]
 ${response}
 ==================================================
 `;
