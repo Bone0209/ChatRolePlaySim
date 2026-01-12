@@ -40,7 +40,10 @@ const CharacterDetailsModal = ({ entity, onClose }: { entity: any, onClose: () =
     // Helper to extract value safely
     const getVal = (key: string) => {
         const prop = env[key];
-        if (prop && typeof prop === 'object' && 'value' in prop) return prop.value;
+        if (prop && typeof prop === 'object') {
+            if ('val' in prop) return prop.val;
+            if ('value' in prop) return prop.value;
+        }
         return prop;
     };
 
@@ -68,10 +71,17 @@ const CharacterDetailsModal = ({ entity, onClose }: { entity: any, onClose: () =
         let value = prop;
         let visible = true;
 
-        if (prop && typeof prop === 'object' && 'category' in prop) {
-            category = prop.category;
-            value = prop.value;
-            visible = prop.visible;
+        if (prop && typeof prop === 'object' && ('category' in prop || 'val' in prop || 'value' in prop)) {
+            if ('category' in prop) category = prop.category;
+            // Handle both val/value and vis/visible
+            value = prop.val !== undefined ? prop.val : prop.value;
+
+            if (prop.vis !== undefined) {
+                // vis: 'vis_public' | 'vis_private' | true/false
+                visible = prop.vis === 'vis_public' || prop.vis === true;
+            } else if (prop.visible !== undefined) {
+                visible = prop.visible;
+            }
         } else {
             // Guess category if not explicit (legacy support)
             if (['name', 'race', 'gender', 'ageGroup'].includes(key)) category = 'basic';
@@ -462,7 +472,7 @@ export default function Home() {
         const loadInitialState = async () => {
             try {
                 // 1. Load History
-                const history = await window.electron.game.getChatHistory(worldId as string);
+                const history = await window.electron?.game.getChatHistory(worldId as string);
                 if (isMounted && history && history.length > 0) {
                     // Map DB history to UI Message type
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -478,7 +488,7 @@ export default function Home() {
                 }
 
                 // 2. Load World State (Time/Location)
-                const state = await window.electron.game.getState(worldId as string);
+                const state = await window.electron?.game.getState(worldId as string);
                 if (isMounted && state) {
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     const s = state as any;
@@ -704,14 +714,29 @@ export default function Home() {
                                 {targets.length > 0 && (
                                     <>
                                         <div className="h-4 w-px bg-white/10 mx-1" />
-                                        <button
-                                            type="button"
-                                            className="flex items-center gap-1 text-xs font-medium text-zinc-400 hover:text-zinc-200 transition-colors"
-                                            title="Select Target"
-                                        >
-                                            <span>To: {selectedTarget?.name || 'Select'}</span>
-                                            <ChevronDown size={10} className="opacity-50" />
-                                        </button>
+                                        <div className="relative group">
+                                            <button
+                                                type="button"
+                                                className="flex items-center gap-1 text-xs font-medium text-zinc-400 hover:text-zinc-200 transition-colors"
+                                                title="Select Target"
+                                            >
+                                                <span>To: {selectedTarget ? selectedTarget.name : 'Select'}</span>
+                                                <ChevronDown size={10} className="opacity-50" />
+                                            </button>
+
+                                            <select
+                                                className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                                                value={selectedTarget?.id || ''}
+                                                onChange={(e) => {
+                                                    const t = targets.find(t => t.id === e.target.value);
+                                                    if (t) setSelectedTarget(t);
+                                                }}
+                                            >
+                                                {targets.map(t => (
+                                                    <option key={t.id} value={t.id}>{t.name}</option>
+                                                ))}
+                                            </select>
+                                        </div>
                                     </>
                                 )}
                             </div>

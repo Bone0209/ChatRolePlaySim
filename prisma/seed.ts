@@ -31,7 +31,7 @@ async function main() {
     console.log('Seeding global_constants to dev.db...')
 
     for (const c of constants) {
-        const result = await prisma.globalConstant.upsert({
+        const result = await prisma.mGlobalConstant.upsert({
             where: { keyName: c.keyName },
             update: {
                 category: c.category,

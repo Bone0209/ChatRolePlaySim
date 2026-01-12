@@ -1,6 +1,6 @@
 
 import { ipcMain } from 'electron';
-import prisma from '../lib/prisma';
+import prisma from '../infrastructure/database/prisma';
 
 // Constants
 const STEPS_PER_DAY = 100000; // 1日あたりのUnit数 (変更前: 30)
@@ -62,46 +62,68 @@ export const registerGameHandlers = () => {
             const whereClause: any = { type: 'ENTITY_PLAYER' };
             if (worldId) whereClause.worldId = worldId;
 
-            const player = await prisma.entity.findFirst({
+            const player = await prisma.mEntity.findFirst({
                 where: whereClause,
-                orderBy: { createdAt: 'desc' } // Get the latest active player for this world
+                orderBy: { createdAt: 'desc' },
+                include: {
+                    currentState: true,
+                    currentPersona: true,
+                    currentParameter: true
+                }
             });
 
             console.log(`[GameIPC] Found Player: ${player?.name} (ID: ${player?.id})`);
 
-            if (player && player.environment) {
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                const env: any = player.environment;
-                console.log(`[GameIPC] Player Env: location=${env.location}, locationId=${env.locationId}`);
+            if (player) {
+                // Reconstruct environment
+                const env: any = {
+                    ...(player.currentState?.data as object || {}),
+                    ...(player.currentPersona?.data as object || {}),
+                    ...(player.currentParameter?.data as object || {})
+                };
+                const locVal = env.location?.val !== undefined ? env.location.val : env.location;
+                const locIdVal = env.locationId?.val !== undefined ? env.locationId.val : env.locationId;
 
-                locationName = env.location || "Unknown";
-                locationId = env.locationId || "";
+                console.log(`[GameIPC] Player Env: location=${locVal}, locationId=${locIdVal}`);
+
+                locationName = locVal || "Unknown";
+                locationId = locIdVal || "";
 
                 if (locationId) {
                     // 2. Fetch NPCs in this location
-                    const foundNpcs = await prisma.entity.findMany({
+                    const foundNpcs = await prisma.mEntity.findMany({
                         where: {
                             type: 'ENTITY_NPC',
-                            // Prisma JSON filtering or fetching all and filtering in JS if JSON filter unstable
+                        },
+                        include: {
+                            currentState: true,
+                            currentPersona: true,
+                            currentParameter: true
                         }
                     });
 
-                    // Filter in memory for safety with SQLite JSON
+                    // Filter in memory
                     npcs = foundNpcs.filter(n => {
-                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                        const nEnv: any = n.environment || {};
+                        const nEnv: any = {
+                            ...(n.currentState?.data as object || {}),
+                            ...(n.currentPersona?.data as object || {}),
+                            ...(n.currentParameter?.data as object || {})
+                        };
 
                         // Handle both old flat structure and new nested structure
-                        // New: locationId: { value: '...', ... }
+                        // New: locationId: { val: '...', ... }
                         // Old: locationId: '...'
-                        const nLocId = nEnv.locationId?.value !== undefined ? nEnv.locationId.value : nEnv.locationId;
+                        const nLocId = nEnv.locationId?.val !== undefined ? nEnv.locationId.val : nEnv.locationId;
 
                         return nLocId === locationId;
                     }).map(n => {
-                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                        const nEnv: any = n.environment || {};
+                        const nEnv: any = {
+                            ...(n.currentState?.data as object || {}),
+                            ...(n.currentPersona?.data as object || {}),
+                            ...(n.currentParameter?.data as object || {})
+                        };
                         // Role extraction
-                        const role = nEnv.role?.value !== undefined ? nEnv.role.value : (nEnv.role || 'NPC');
+                        const role = nEnv.role?.val !== undefined ? nEnv.role.val : (nEnv.role || 'NPC');
 
                         return {
                             id: n.id,
@@ -123,9 +145,24 @@ export const registerGameHandlers = () => {
         if (!prisma) throw new Error('Database not initialized');
         if (!entityId) return null;
         try {
-            const entity = await prisma.entity.findUnique({
-                where: { id: entityId }
+            const entity = await prisma.mEntity.findUnique({
+                where: { id: entityId },
+                include: {
+                    currentState: true,
+                    currentPersona: true,
+                    currentParameter: true
+                }
             });
+            if (entity) {
+                return {
+                    ...entity,
+                    environment: {
+                        ...(entity.currentState?.data as object || {}),
+                        ...(entity.currentPersona?.data as object || {}),
+                        ...(entity.currentParameter?.data as object || {})
+                    }
+                };
+            }
             return entity;
         } catch (e) {
             console.error("Failed to fitches entity:", e);
@@ -140,13 +177,13 @@ export const registerGameHandlers = () => {
 
         // Fetch total_steps from GlobalConstant (Scoped by World)
         const keyName = `steps_${worldId}`;
-        let constant = await prisma.globalConstant.findUnique({
+        let constant = await prisma.mGlobalConstant.findUnique({
             where: { keyName: keyName }
         });
 
         // Initialize if not exists
         if (!constant) {
-            constant = await prisma.globalConstant.create({
+            constant = await prisma.mGlobalConstant.create({
                 data: {
                     category: 'system',
                     keyName: keyName,
@@ -172,12 +209,12 @@ export const registerGameHandlers = () => {
 
         // Fetch current
         const keyName = `steps_${worldId}`;
-        let constant = await prisma.globalConstant.findUnique({
+        let constant = await prisma.mGlobalConstant.findUnique({
             where: { keyName: keyName }
         });
 
         if (!constant) {
-            constant = await prisma.globalConstant.create({
+            constant = await prisma.mGlobalConstant.create({
                 data: { category: 'system', keyName: keyName, keyValue: '0' }
             });
         }
@@ -192,7 +229,7 @@ export const registerGameHandlers = () => {
         }
 
         // Update DB
-        await prisma.globalConstant.update({
+        await prisma.mGlobalConstant.update({
             where: { keyName: keyName },
             data: { keyValue: newTotal.toString() }
         });
@@ -206,7 +243,7 @@ export const registerGameHandlers = () => {
 
         try {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const chats = await (prisma as any).chat.findMany({
+            const chats = await (prisma as any).tChat.findMany({
                 where: { worldId },
                 orderBy: { id: 'asc' },
                 take: 50,

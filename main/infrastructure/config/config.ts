@@ -1,9 +1,11 @@
+/**
+ * config.ts - アプリケーション設定
+ * 
+ * 環境変数から設定を読み込み、型安全なConfigオブジェクトを提供します。
+ */
+
 import fs from 'fs';
 import path from 'path';
-
-// Helper to read env if not already loaded (Nextron usually handles this, but for safety in Main process)
-// Note: In Nextron/Electron, process.env is usually populated at build/runtime.
-// If needed, we could use 'dotenv' here, but Next.js/Electron usually handle it.
 
 export interface ModelConfig {
     baseUrl: string;
@@ -12,17 +14,19 @@ export interface ModelConfig {
 }
 
 export interface AppConfig {
-    mainModel: ModelConfig; // High Intel (Chat, Compex Gen)
-    subModel: ModelConfig;  // fast/Cheaper (Judgement, Naming)
+    mainModel: ModelConfig;
+    subModel: ModelConfig;
     temperature: number;
     database: {
         url: string;
     };
 }
 
+/**
+ * .envファイルを手動でロード
+ * Nextron/Electronのメインプロセスでは自動ロードされない場合があるため
+ */
 const loadEnv = () => {
-    // Manually load .env if not present in process.env
-    // This is needed because Nextron's main process might not load .env automatically
     const envPath = path.join(process.cwd(), '.env');
     if (fs.existsSync(envPath)) {
         const content = fs.readFileSync(envPath, 'utf8');
@@ -30,7 +34,7 @@ const loadEnv = () => {
             const match = line.match(/^([^=]+)=(.*)$/);
             if (match) {
                 const key = match[1].trim();
-                const value = match[2].trim().replace(/^['"](.*)['"]$/, '$1'); // Remove quotes
+                const value = match[2].trim().replace(/^['"](.*)['"]\$/, '$1');
                 if (!process.env[key]) {
                     process.env[key] = value;
                 }
@@ -42,26 +46,29 @@ const loadEnv = () => {
 
 loadEnv();
 
+/**
+ * 環境変数を取得（デフォルト値付き）
+ */
 const getEnv = (key: string, defaultValue: string = ''): string => {
     return process.env[key] || defaultValue;
 };
 
+/**
+ * アプリケーション設定を取得
+ */
 export const getAppConfig = (): AppConfig => {
-    // MAIN Model (e.g. NanoGPT)
     const mainModel: ModelConfig = {
         baseUrl: getEnv('MAIN_MODEL_BASE_URL', 'https://nano-gpt.com/api/v1'),
         apiKey: getEnv('MAIN_MODEL_API_KEY', ''),
         model: getEnv('MAIN_MODEL', 'zai-org/glm-4.7-original:thinking'),
     };
 
-    // SUB Model (e.g. Local/LMStudio)
     const subModel: ModelConfig = {
         baseUrl: getEnv('SUB_MODEL_BASE_URL', 'http://127.0.0.1:1234/v1'),
         apiKey: getEnv('SUB_MODEL_API_KEY', ''),
         model: getEnv('SUB_MODEL', 'local-model'),
     };
 
-    // Correct fallback for Prisma/LibSQL: relative to CWD (root) -> prisma/dev.db
     return {
         mainModel,
         subModel,
@@ -72,6 +79,9 @@ export const getAppConfig = (): AppConfig => {
     };
 };
 
-export const getDatabaseUrl = () => {
+/**
+ * データベースURLを取得
+ */
+export const getDatabaseUrl = (): string => {
     return getAppConfig().database.url;
 };

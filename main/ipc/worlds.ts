@@ -1,9 +1,9 @@
 import { ipcMain } from 'electron';
-import prisma from '../lib/prisma';
-import { generateId } from '../lib/uuid';
-import { getAppConfig } from '../lib/config';
-import { PromptTemplate } from '../lib/PromptTemplate';
-import { logLlmRequest, logLlmResponse } from '../lib/logger';
+import prisma from '../infrastructure/database/prisma';
+import { generateId } from '../infrastructure/utils';
+import { getAppConfig } from '../infrastructure/config';
+import { PromptTemplate } from '../infrastructure/prompts';
+import { logLlmRequest, logLlmResponse } from '../infrastructure/logging';
 import path from 'path';
 import fs from 'fs';
 import { app } from 'electron';
@@ -69,7 +69,7 @@ export const registerWorldHandlers = () => {
             throw new Error('Database connection failed. Check server logs.');
         }
         try {
-            const worlds = await prisma.world.findMany({
+            const worlds = await prisma.mWorld.findMany({
                 orderBy: { createdAt: 'desc' }
             });
             return worlds;
@@ -93,12 +93,12 @@ export const registerWorldHandlers = () => {
                     name: 'World State',
                     description: 'Global world state',
                     environment: {
-                        turn: 0,
-                        weather: 'Sunny',
-                        turns_per_day: 30,
-                        year: 1000,
-                        month: 1,
-                        day: 1
+                        turn: { val: 0, vis: 'vis_public' },
+                        weather: { val: 'Sunny', vis: 'vis_public' },
+                        turns_per_day: { val: 30, vis: 'vis_private' },
+                        year: { val: 1000, vis: 'vis_public' },
+                        month: { val: 1, vis: 'vis_public' },
+                        day: { val: 1, vis: 'vis_public' }
                     }
                 },
                 // Player entity will be added later or updated
@@ -107,9 +107,9 @@ export const registerWorldHandlers = () => {
                     name: 'Player',
                     description: 'Player character',
                     environment: {
-                        condition: 'Normal',
-                        location: 'Unknown',
-                        locationId: null, // Unified structure
+                        condition: { val: 'Normal', vis: 'vis_public' },
+                        location: { val: 'Unknown', vis: 'vis_public' },
+                        locationId: { val: null, vis: 'vis_private' }, // Unified structure
                         parameter: {
                             attributes: {
                                 VIT: { base: 10, effective: 10 },
@@ -255,12 +255,12 @@ export const registerWorldHandlers = () => {
                         const npcEnvironment = npcData.npc.environment || {};
 
                         // Ensure name is extracted correctly for top-level name field
-                        const npcName = npcEnvironment.name?.value || 'Unknown NPC';
-                        const npcDesc = npcEnvironment.role?.value || npcEnvironment.title?.value || 'NPC';
+                        const npcName = npcEnvironment.name?.val || 'Unknown NPC';
+                        const npcDesc = npcEnvironment.role?.val || npcEnvironment.title?.val || 'NPC';
 
                         // Inject location into NPC state
-                        npcEnvironment.locationName = { value: npcData.location.name, category: 'state', visible: true };
-                        npcEnvironment.locationId = { value: locationId, category: 'state', visible: true };
+                        npcEnvironment.locationName = { val: npcData.location.name, category: 'state', vis: 'vis_public' };
+                        npcEnvironment.locationId = { val: locationId, category: 'state', vis: 'vis_public' };
 
                         entitiesToCreate.push({
                             type: 'ENTITY_NPC',
@@ -274,25 +274,81 @@ export const registerWorldHandlers = () => {
                         if (playerEntity) {
                             // Player uses different structure for now, or could be unified later.
                             // Keeping minimal update for player to avoid breaking valid structure if it differs.
-                            playerEntity.environment.location = npcData.location.name;
-                            playerEntity.environment.locationId = locationId;
+                            // Player uses different structure for now, or could be unified later.
+                            // Keeping minimal update for player to avoid breaking valid structure if it differs.
+                            playerEntity.environment.location = { val: npcData.location.name, vis: 'vis_public' };
+                            playerEntity.environment.locationId = { val: locationId, vis: 'vis_private' };
                             console.log(`[IPC] Player spawned at ${npcData.location.name} (${locationId})`);
                         }
                     }
                 }
             }
 
-            const world = await prisma.world.create({
+            const world = await prisma.mWorld.create({
                 data: {
                     id,
                     name,
                     prompt: prompt || '',
-                    createdAt: new Date(),
-                    entities: {
-                        create: entitiesToCreate
-                    }
+                    createdAt: new Date()
                 }
             });
+
+            // Create Entities Loop
+            for (const entityData of entitiesToCreate) {
+                const entityId = entityData.id || generateId();
+                const env = entityData.environment || {};
+
+                // Split env into categories
+                const personaKeys = ['personality', 'role', 'tone', 'love', 'bravery', 'name', 'description']; // Add known keys
+                const paramKeys = ['parameter', 'attributes', 'resources'];
+                const stateKeys = ['location', 'locationId', 'locationName', 'condition', 'turn', 'weather', 'year', 'month', 'day'];
+
+                const personaData: any = {};
+                const paramData: any = {};
+                const stateData: any = {};
+
+                for (const [key, val] of Object.entries(env)) {
+                    // Start with basic classification
+                    if (stateKeys.includes(key) || stateKeys.some(k => key.startsWith(k))) {
+                        stateData[key] = val;
+                    } else if (paramKeys.includes(key)) {
+                        paramData[key] = val;
+                    } else {
+                        // Default to persona for unknown properties in this context (often role/desc)
+                        personaData[key] = val;
+                    }
+                }
+
+                await prisma.mEntity.create({
+                    data: {
+                        id: entityId,
+                        worldId: world.id,
+                        type: entityData.type,
+                        name: entityData.name,
+                        description: entityData.description,
+                        // Create initial values in sub-tables
+                        initialPersona: {
+                            create: { data: personaData }
+                        },
+                        currentPersona: {
+                            create: { data: personaData }
+                        },
+                        initialParameter: {
+                            create: { data: paramData }
+                        },
+                        currentParameter: {
+                            create: { data: paramData }
+                        },
+                        initialState: {
+                            create: { data: stateData }
+                        },
+                        currentState: {
+                            create: { data: stateData }
+                        }
+                    }
+                });
+            }
+
             return world;
         } catch (error) {
             console.error('Failed to create world:', error);

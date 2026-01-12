@@ -1,6 +1,14 @@
-import fs from 'fs';
-import path from 'path';
+/**
+ * PromptTemplate - プロンプトテンプレート処理
+ * 
+ * マークダウンファイルからプロンプトを読み込み、変数を置換します。
+ */
 
+import fs from 'fs';
+
+/**
+ * プロンプトテンプレートクラス
+ */
 export class PromptTemplate {
     private templateContent: string;
 
@@ -12,14 +20,14 @@ export class PromptTemplate {
     }
 
     /**
-     * Substitutes placeholders in the template with provided values.
-     * - Objects and Arrays are automatically JSON stringified.
-     * - Strings are inserted as is.
+     * テンプレート内のプレースホルダー {{key}} を値で置換
+     * - オブジェクト/配列はJSON文字列化
+     * - その他は文字列化
      * 
-     * @param variables Key-value pairs matching {{key}} in the template.
-     * @returns The processed string.
+     * @param variables プレースホルダーと値のマップ
+     * @returns 処理済み文字列
      */
-    public render(variables: Record<string, any>): string {
+    public render(variables: Record<string, unknown>): string {
         let result = this.templateContent;
 
         for (const [key, value] of Object.entries(variables)) {
@@ -27,14 +35,11 @@ export class PromptTemplate {
             let replacement = '';
 
             if (typeof value === 'object' && value !== null) {
-                // Pretty print JSON objects/arrays
                 replacement = JSON.stringify(value, null, 2);
             } else {
-                // Convert numbers, booleans, etc to string
                 replacement = String(value);
             }
 
-            // Replace all occurrences
             result = result.split(placeholder).join(replacement);
         }
 

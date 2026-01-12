@@ -2,11 +2,12 @@ import { app, BrowserWindow, ipcMain, screen } from 'electron';
 import serve from 'electron-serve';
 import path from 'path';
 import fs from 'fs';
-import { PromptTemplate } from './lib/PromptTemplate';
-import prisma from './lib/prisma';
+import { PromptTemplate } from './infrastructure/prompts';
+import prisma from './infrastructure/database/prisma';
 import { registerWorldHandlers } from './ipc/worlds';
 import { registerGameHandlers } from './ipc/game';
-import { logLlmRequest, logLlmResponse } from './lib/logger';
+import { logLlmRequest, logLlmResponse } from './infrastructure/logging';
+import { PrismaEntityRepository } from './infrastructure/repositories';
 
 const loadURL = serve({ directory: 'renderer/out' });
 
@@ -19,7 +20,7 @@ const isDev = process.env.NODE_ENV === 'development';
 const DEFAULT_DIMENSIONS = { width: 1280, height: 800 };
 
 // -- Config Loading --
-import { getAppConfig } from './lib/config';
+import { getAppConfig } from './infrastructure/config';
 
 let config = getAppConfig(); // Initial load for startup logging
 console.log('Loaded config:', config);
@@ -138,11 +139,11 @@ ipcMain.handle('chat', async (event, { message, history = [], targetId, worldId 
         try {
             // Need Player Entity ID
             // We can fetch it or just assume there's one player per world for now
-            const player = await prisma.entity.findFirst({
+            const player = await prisma.mEntity.findFirst({
                 where: { worldId, type: 'ENTITY_PLAYER' }
             });
 
-            await prisma.chat.create({
+            await prisma.tChat.create({
                 data: {
                     worldId: worldId,
                     chatType: '1', // CHAT_PLAYER
@@ -171,7 +172,7 @@ ipcMain.handle('chat', async (event, { message, history = [], targetId, worldId 
 
     try {
         // Time
-        const stepsConst = await prisma.globalConstant.findUnique({ where: { keyName: 'total_steps' } });
+        const stepsConst = await prisma.mGlobalConstant.findUnique({ where: { keyName: 'total_steps' } });
         if (stepsConst) {
             const totalSteps = parseInt(stepsConst.keyValue, 10);
             contextData.day = Math.floor(totalSteps / 30) + 1;
@@ -188,20 +189,37 @@ ipcMain.handle('chat', async (event, { message, history = [], targetId, worldId 
         const whereClause: any = { type: 'ENTITY_PLAYER' };
         if (worldId) whereClause.worldId = worldId;
 
-        const player = await prisma.entity.findFirst({
+        const player = await prisma.mEntity.findFirst({
             where: whereClause,
-            orderBy: { createdAt: 'desc' }
+            orderBy: { createdAt: 'desc' },
+            include: { currentState: true, currentPersona: true, currentParameter: true }
         });
 
-        if (player && player.environment) {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const pEnv: any = player.environment;
+        if (player) {
+            // Reconstruct environment
+            const pEnv: any = {
+                ...(player.currentState?.data as object || {}),
+                ...(player.currentPersona?.data as object || {}),
+                ...(player.currentParameter?.data as object || {})
+            };
             contextData.locationName = pEnv.location || 'Unknown';
 
             if (pEnv.locationId) {
-                const locEntity = await prisma.entity.findUnique({ where: { id: pEnv.locationId } });
-                if (locEntity) {
-                    contextData.locationDesc = locEntity.description || '';
+                // val access if new structure
+                const locId = pEnv.locationId.val !== undefined ? pEnv.locationId.val : pEnv.locationId;
+                if (locId) {
+                    const locEntity = await prisma.mEntity.findUnique({
+                        where: { id: locId },
+                        include: { currentState: true, currentPersona: true, currentParameter: true }
+                    });
+                    if (locEntity) {
+                        const lEnv: any = {
+                            ...(locEntity.currentState?.data as object || {}),
+                            ...(locEntity.currentPersona?.data as object || {}),
+                            ...(locEntity.currentParameter?.data as object || {})
+                        };
+                        contextData.locationDesc = locEntity.description || '';
+                    }
                 }
             }
         }
@@ -210,15 +228,23 @@ ipcMain.handle('chat', async (event, { message, history = [], targetId, worldId 
         // targetRole and targetAffection are defined in outer scope
 
         if (targetId) {
-            const npcEntity = await prisma.entity.findUnique({ where: { id: targetId } });
+            const npcEntity = await prisma.mEntity.findUnique({
+                where: { id: targetId },
+                include: { currentState: true, currentPersona: true, currentParameter: true }
+            });
             if (npcEntity) {
                 contextData.targetName = npcEntity.name;
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                const nEnv: any = npcEntity.environment || {};
+                const nEnv: any = {
+                    ...(npcEntity.currentState?.data as object || {}),
+                    ...(npcEntity.currentPersona?.data as object || {}),
+                    ...(npcEntity.currentParameter?.data as object || {})
+                };
 
                 // Helper to safely get value from flat structure or legacy profile object
                 const getVal = (key: string, legacyKey?: string) => {
-                    if (nEnv[key]?.value !== undefined) return nEnv[key].value;
+                    if (nEnv[key]?.val !== undefined) return nEnv[key].val;
+                    if (nEnv[key]?.value !== undefined) return nEnv[key].value; // fallback
                     if (nEnv[key] !== undefined && typeof nEnv[key] !== 'object') return nEnv[key];
                     // Legacy fallback
                     if (nEnv.profile && legacyKey && nEnv.profile[legacyKey]) return nEnv.profile[legacyKey];
@@ -234,9 +260,9 @@ ipcMain.handle('chat', async (event, { message, history = [], targetId, worldId 
 
                 targetRole = role;
 
-                if (nEnv.affection?.value !== undefined) targetAffection = Number(nEnv.affection.value);
-                else if (nEnv.affection !== undefined) targetAffection = Number(nEnv.affection);
-                else if (nEnv.likability?.value !== undefined) targetAffection = Number(nEnv.likability.value);
+                if (nEnv.affection?.val !== undefined) targetAffection = Number(nEnv.affection.val);
+                else if (nEnv.affection?.value !== undefined) targetAffection = Number(nEnv.affection.value);
+                else if (nEnv.affection !== undefined && typeof nEnv.affection !== 'object') targetAffection = Number(nEnv.affection);
 
                 // Add to contextData for template use
                 Object.assign(contextData, {
@@ -267,9 +293,9 @@ ipcMain.handle('chat', async (event, { message, history = [], targetId, worldId 
                     let val = valObj;
                     let visible = true; // Default to true if simple value
 
-                    if (valObj && typeof valObj === 'object' && valObj.value !== undefined) {
-                        val = valObj.value;
-                        visible = valObj.visible !== false;
+                    if (valObj && typeof valObj === 'object' && (valObj.val !== undefined || valObj.value !== undefined)) {
+                        val = valObj.val !== undefined ? valObj.val : valObj.value;
+                        visible = (valObj.vis === 'vis_public') || (valObj.visible === true);
                     }
 
                     // User requested "ALL" data, so we include even hidden data like personality/thresholds
@@ -373,7 +399,21 @@ ipcMain.handle('chat', async (event, { message, history = [], targetId, worldId 
             }, 180000);
 
             if (aResponse.ok) {
-                const aData: any = await aResponse.json();
+                const aText = await aResponse.text();
+                // console.log("Analysis Raw:", aText);
+                let aData: any = {};
+                try {
+                    aData = JSON.parse(aText);
+                } catch (e) {
+                    console.warn("[Chat] Analysis API returned non-JSON:", aText.substring(0, 200));
+                    // If it's a thinking model returning raw text without JSON?
+                    // Just treat the whole text as content if possible, or fail.
+                    // For analysis we expect JSON structure usually.
+                    // Attempt to treat as { choices: [ { message: { content: ... } } ] } mock if it looks like plain text?
+                    // But here we need specific fields. Let's assume failure or try partial parse.
+                    aData = { choices: [{ message: { content: aText } }] };
+                }
+
                 let content = aData.choices?.[0]?.message?.content || "";
                 logLlmResponse(content);
                 // Cleaning logic for Thinking Models
@@ -459,12 +499,12 @@ ipcMain.handle('chat', async (event, { message, history = [], targetId, worldId 
 
             if (stepCost > 0) {
                 const keyName = `steps_${worldId}`;
-                let constant = await prisma.globalConstant.findUnique({ where: { keyName } });
+                let constant = await prisma.mGlobalConstant.findUnique({ where: { keyName } });
                 if (!constant) {
-                    constant = await prisma.globalConstant.create({ data: { category: 'system', keyName, keyValue: '0' } });
+                    constant = await prisma.mGlobalConstant.create({ data: { category: 'system', keyName, keyValue: '0' } });
                 }
                 const newSteps = parseInt(constant.keyValue, 10) + stepCost;
-                await prisma.globalConstant.update({
+                await prisma.mGlobalConstant.update({
                     where: { keyName },
                     data: { keyValue: newSteps.toString() }
                 });
@@ -537,7 +577,7 @@ Reaction: Show rejection, disgust, or refusal to comply. Do NOT perform the requ
         // Fetch History for injection
         let historyText = "(No history)";
         if (worldId) {
-            const recentChats = await prisma.chat.findMany({
+            const recentChats = await prisma.tChat.findMany({
                 where: { worldId },
                 orderBy: { id: 'desc' },
                 take: 20,
@@ -594,7 +634,7 @@ ${contextData.targetProfile ? `Profile:\n${contextData.targetProfile}` : ''}
         // [HISTORY FIX] Fetch history from DB
         const historyMsgs = await (async () => {
             if (!worldId) return [];
-            const recentChats = await prisma.chat.findMany({
+            const recentChats = await prisma.tChat.findMany({
                 where: { worldId },
                 orderBy: { id: 'desc' },
                 take: 20,
@@ -638,9 +678,23 @@ ${contextData.targetProfile ? `Profile:\n${contextData.targetProfile}` : ''}
             body: JSON.stringify(genPayload)
         }, 300000); // 300s timeout for Thinking Models
 
-        if (!gResponse.ok) throw new Error(`Generation API Error: ${gResponse.status}`);
+        if (!gResponse.ok) {
+            const errBody = await gResponse.text();
+            throw new Error(`Generation API Error (${gResponse.status}): ${errBody.substring(0, 200)}`);
+        }
 
-        const gData: any = await gResponse.json();
+        const gText = await gResponse.text();
+        let gData: any;
+        try {
+            gData = JSON.parse(gText);
+        } catch (e) {
+            console.warn("[Chat] Generation API response parse error. Raw:", gText.substring(0, 200));
+            // Fallback: If it's just a raw spring of text, wrap it? 
+            // Some proxies behave oddly. 
+            // But usually this means HTML error page.
+            throw new Error(`Generation API returned invalid JSON: ${gText.substring(0, 50)}...`);
+        }
+
         const reply = gData.choices?.[0]?.message?.content || '...';
         logLlmResponse(reply);
         logToFile("[Chat] Generation Success");
@@ -651,12 +705,12 @@ ${contextData.targetProfile ? `Profile:\n${contextData.targetProfile}` : ''}
                 // Find NPC entity ID for linking
                 let npcId = targetId;
                 if (!npcId && contextData.targetName) {
-                    const n = await prisma.entity.findFirst({ where: { worldId, name: contextData.targetName, type: 'ENTITY_NPC' } });
+                    const n = await prisma.mEntity.findFirst({ where: { worldId, name: contextData.targetName, type: 'ENTITY_NPC' } });
                     if (n) npcId = n.id;
                 }
 
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                await (prisma as any).chat.create({
+                await (prisma as any).tChat.create({
                     data: {
                         worldId: worldId,
                         chatType: '2', // CHAT_NPC
@@ -688,15 +742,16 @@ ${contextData.targetProfile ? `Profile:\n${contextData.targetProfile}` : ''}
 
                     if (!affectionPromptPath) return;
 
-                    const npc = await prisma.entity.findUnique({ where: { id: targetId } });
-                    if (!npc) return;
+                    const pState = await prisma.tEntityState.findUnique({ where: { entityId: targetId } });
+                    if (!pState) return;
 
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    const nEnv: any = npc.environment || {};
+                    const nEnv: any = pState.data || {};
                     let currentAffection = 0;
                     // Safely extract numeric affection
-                    if (nEnv.affection?.value !== undefined) currentAffection = Number(nEnv.affection.value) || 0;
-                    else if (nEnv.affection !== undefined) currentAffection = Number(nEnv.affection) || 0;
+                    if (nEnv.affection?.val !== undefined) currentAffection = Number(nEnv.affection.val) || 0;
+                    else if (nEnv.affection?.value !== undefined) currentAffection = Number(nEnv.affection.value) || 0;
+                    else if (nEnv.affection !== undefined && typeof nEnv.affection !== 'object') currentAffection = Number(nEnv.affection) || 0;
 
                     const afTemplate = new PromptTemplate(affectionPromptPath);
 
@@ -706,7 +761,7 @@ ${contextData.targetProfile ? `Profile:\n${contextData.targetProfile}` : ''}
                     const ctxAny = contextData as any;
 
                     const afPrompt = afTemplate.render({
-                        targetName: npc.name,
+                        targetName: ctxAny.targetName,
                         targetPersonality: ctxAny.targetPersonality || 'Unknown',
                         currentAffection: currentAffection,
                         userInput: message,
@@ -759,24 +814,15 @@ ${contextData.targetProfile ? `Profile:\n${contextData.targetProfile}` : ''}
                             if (afResult.affection_delta && afResult.affection_delta !== 0) {
                                 const newAffection = currentAffection + Number(afResult.affection_delta);
 
-                                // Update DB
-                                const newEnv = { ...nEnv };
-                                if (newEnv.affection && typeof newEnv.affection === 'object') {
-                                    newEnv.affection.value = newAffection;
-                                } else {
-                                    newEnv.affection = {
-                                        value: newAffection,
-                                        category: 'state',
-                                        visible: true
-                                    };
-                                }
-
-                                if (prisma) {
-                                    await prisma.entity.update({
-                                        where: { id: targetId },
-                                        data: { environment: newEnv }
-                                    });
+                                // Update DB (T_ & H_) via Repository
+                                try {
+                                    const entityRepo = new PrismaEntityRepository();
+                                    const { ParameterValue, Visibility } = await import('./domain/value-objects');
+                                    const newValue = ParameterValue.create(newAffection, Visibility.private());
+                                    await entityRepo.updateParameter(targetId, 'state', 'affection', newValue);
                                     logToFile(`[Chat] Updated Affection: ${currentAffection} -> ${newAffection} (Reason: ${afResult.reason})`);
+                                } catch (e) {
+                                    console.error("Failed to update affection:", e);
                                 }
                             }
                         } catch (parseErr: any) {
