@@ -1,3 +1,4 @@
+
 // This is your Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
@@ -9,54 +10,175 @@ datasource db {
   provider = "sqlite"
 }
 
-model World {
+// --- Master Data (Definitions & Invariants) ---
+
+model MWorld {
   id        String   @id
   name      String
   prompt    String
-  createdAt DateTime @default(now())
+  createdAt DateTime @default(now()) @map("created_at")
 
-  entities  Entity[]
-  chats     Chat[]
+  entities  MEntity[]
+  chats     TChat[]
 
-  @@map("worlds")
+  @@map("m_worlds")
 }
 
-model GlobalConstant {
+model MGlobalConstant {
   id        Int      @id @default(autoincrement())
   category  String
   keyName   String   @unique @map("key_name")
   keyValue  String   @map("key_value")
   createdAt DateTime @default(now()) @map("created_at")
 
-  @@map("global_constants")
+  @@map("m_global_constants")
 }
 
-model Entity {
+model MEntity {
   id          String   @id @default(uuid())
   worldId     String   @map("world_id")
   type        String
   name        String
   description String?
-  environment Json
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  world       World    @relation(fields: [worldId], references: [id], onDelete: Cascade)
-  chats       Chat[]
+  world       MWorld   @relation(fields: [worldId], references: [id], onDelete: Cascade)
+  chats       TChat[]
 
-  @@map("entities")
+  // Relations to Category Data
+  initialPersona   MEntityPersona?
+  currentPersona   TEntityPersona?
+  historyPersona   HEntityPersona[]
+
+  initialParameter MEntityParameter?
+  currentParameter TEntityParameter?
+  historyParameter HEntityParameter[]
+
+  initialState     MEntityState?
+  currentState     TEntityState?
+  historyState     HEntityState[]
+
+  @@map("m_entities")
 }
 
-model Chat {
+// --- Category: Persona (Personality) ---
+
+model MEntityPersona {
+  id        Int      @id @default(autoincrement())
+  entityId  String   @unique @map("entity_id")
+  data      Json     // Initial KV data
+  createdAt DateTime @default(now()) @map("created_at")
+
+  entity    MEntity  @relation(fields: [entityId], references: [id], onDelete: Cascade)
+
+  @@map("m_entity_personas")
+}
+
+model TEntityPersona {
+  id        Int      @id @default(autoincrement())
+  entityId  String   @unique @map("entity_id")
+  data      Json     // Current KV data
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  entity    MEntity  @relation(fields: [entityId], references: [id], onDelete: Cascade)
+
+  @@map("t_entity_personas")
+}
+
+model HEntityPersona {
+  id        Int      @id @default(autoincrement())
+  entityId  String   @map("entity_id")
+  diff      Json     // Diff data { add, del, upd }
+  createdAt DateTime @default(now()) @map("created_at")
+
+  entity    MEntity  @relation(fields: [entityId], references: [id], onDelete: Cascade)
+
+  @@map("h_entity_personas")
+}
+
+// --- Category: Parameter (Stats like HP, MP) ---
+
+model MEntityParameter {
+  id        Int      @id @default(autoincrement())
+  entityId  String   @unique @map("entity_id")
+  data      Json
+  createdAt DateTime @default(now()) @map("created_at")
+
+  entity    MEntity  @relation(fields: [entityId], references: [id], onDelete: Cascade)
+
+  @@map("m_entity_parameters")
+}
+
+model TEntityParameter {
+  id        Int      @id @default(autoincrement())
+  entityId  String   @unique @map("entity_id")
+  data      Json
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  entity    MEntity  @relation(fields: [entityId], references: [id], onDelete: Cascade)
+
+  @@map("t_entity_parameters")
+}
+
+model HEntityParameter {
+  id        Int      @id @default(autoincrement())
+  entityId  String   @map("entity_id")
+  diff      Json
+  createdAt DateTime @default(now()) @map("created_at")
+
+  entity    MEntity  @relation(fields: [entityId], references: [id], onDelete: Cascade)
+
+  @@map("h_entity_parameters")
+}
+
+// --- Category: State (Location, Condition) ---
+
+model MEntityState {
+  id        Int      @id @default(autoincrement())
+  entityId  String   @unique @map("entity_id")
+  data      Json
+  createdAt DateTime @default(now()) @map("created_at")
+
+  entity    MEntity  @relation(fields: [entityId], references: [id], onDelete: Cascade)
+
+  @@map("m_entity_states")
+}
+
+model TEntityState {
+  id        Int      @id @default(autoincrement())
+  entityId  String   @unique @map("entity_id")
+  data      Json
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  entity    MEntity  @relation(fields: [entityId], references: [id], onDelete: Cascade)
+
+  @@map("t_entity_states")
+}
+
+model HEntityState {
+  id        Int      @id @default(autoincrement())
+  entityId  String   @map("entity_id")
+  diff      Json
+  createdAt DateTime @default(now()) @map("created_at")
+
+  entity    MEntity  @relation(fields: [entityId], references: [id], onDelete: Cascade)
+
+  @@map("h_entity_states")
+}
+
+// --- Transaction Data (Logs) ---
+
+model TChat {
   id        Int      @id @default(autoincrement())
   worldId   String   @map("world_id")
-  chatType  String   @map("chat_type") // 0:System, 1:Player, 2:NPC
+  chatType  String   @map("chat_type")
   message   String
   createdAt DateTime @default(now()) @map("created_at")
   entityId  String?  @map("entity_id")
 
-  world     World    @relation(fields: [worldId], references: [id], onDelete: Cascade)
-  entity    Entity?  @relation(fields: [entityId], references: [id], onDelete: SetNull)
+  world     MWorld   @relation(fields: [worldId], references: [id], onDelete: Cascade)
+  entity    MEntity? @relation(fields: [entityId], references: [id], onDelete: SetNull)
 
-  @@map("chats")
+  @@map("t_chats")
 }
