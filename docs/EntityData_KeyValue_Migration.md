@@ -140,6 +140,11 @@ model MEntityAttribute {
 }
 ```
 
+> [!NOTE]
+> **MAttributeDefinitionへの直接リレーションは設けない設計**
+> 
+> `MAttributeDefinition`はハイブリッド構造（グローバル + ワールド固有オーバーライド）のため、同一の`keyName`に対して複数レコードが存在し得ます。そのため、1対1/1対多のリレーションでは表現できず、`keyName`による論理的な関連としてViewでフォールバック付きJOINを行います（セクション11参照）。
+
 #### T_Entity_Attribute（現在値トランザクション）
 
 ```prisma
@@ -224,46 +229,35 @@ function isAttributeVisible(
 
 統合テーブルからデータを取得し、**Metaテーブルの`category`でフィルタリング**して表示します。
 
-### 6.2 実装例
+### 6.2 実装例（Viewを使用）
+
+Viewを使用することで、フォールバック処理をSQL側で完結させ、シンプルなクエリで属性を取得できます。
 
 ```typescript
 /**
- * Entityの属性をカテゴリ別に取得
+ * Entityの属性をカテゴリ別に取得（Viewを使用）
  */
 async function getEntityAttributesByCategory(
   entityId: string,
-  worldId: string,
   targetCategory: 'persona' | 'parameter' | 'state'
 ) {
-  // 1. 値を取得
-  const attributes = await prisma.tEntityAttribute.findMany({
-    where: { entityId }
+  // Viewが定義解決とフォールバックを処理済み
+  return await prisma.vEntityAttributeDetail.findMany({
+    where: { 
+      entityId,
+      category: targetCategory
+    },
+    orderBy: { displayOrder: 'asc' }
   });
-  
-  // 2. 各属性の定義を解決し、カテゴリでフィルタ
-  const result = [];
-  for (const attr of attributes) {
-    const definition = await getAttributeDefinition(attr.keyName, worldId);
-    
-    // カテゴリが一致するもののみ
-    if (definition?.category === targetCategory) {
-      result.push({
-        keyName: attr.keyName,
-        value: attr.keyValue,
-        displayName: definition.displayName,
-        displayOrder: definition.displayOrder,
-        visibility: definition.visibility
-      });
-    }
-  }
-  
-  return result.sort((a, b) => a.displayOrder - b.displayOrder);
 }
 
 // 使用例
-const stateAttributes = await getEntityAttributesByCategory(entityId, worldId, 'state');
-const parameterAttributes = await getEntityAttributesByCategory(entityId, worldId, 'parameter');
+const stateAttributes = await getEntityAttributesByCategory(entityId, 'state');
+const parameterAttributes = await getEntityAttributesByCategory(entityId, 'parameter');
 ```
+
+> [!TIP]
+> Viewを使用することで、`worldId`引数が不要になり、N+1クエリ問題も解消されます。
 
 ### 6.3 UIでの表示イメージ
 
@@ -376,7 +370,78 @@ model MEntity {
 
 ---
 
-## 11. チェックリスト
+## 11. 確認用View定義
+
+### 11.1 概要
+
+データ確認やデバッグを容易にするため、`t_entity_attributes`と`m_attribute_definitions`を結合したViewを定義します。
+このViewは、ワールド固有定義 → グローバル定義のフォールバックロジックをSQL側で処理し、完全にハイドレートされた属性データを提供します。
+
+### 11.2 SQL View定義
+
+```sql
+CREATE VIEW v_entity_attribute_details AS
+SELECT
+  tea.entity_id,
+  tea.key_name,
+  tea.key_value,
+  me.world_id,
+  COALESCE(world_def.category, global_def.category) AS category,
+  COALESCE(world_def.display_name, global_def.display_name) AS display_name,
+  COALESCE(world_def.value_type, global_def.value_type) AS value_type,
+  COALESCE(world_def.description, global_def.description) AS description,
+  COALESCE(world_def.display_order, global_def.display_order, 0) AS display_order,
+  COALESCE(world_def.visibility, global_def.visibility, 'public') AS visibility,
+  COALESCE(world_def.visibility_param, global_def.visibility_param) AS visibility_param,
+  tea.updated_at
+FROM t_entity_attributes tea
+INNER JOIN m_entities me ON tea.entity_id = me.id
+LEFT JOIN m_attribute_definitions world_def 
+  ON tea.key_name = world_def.key_name AND me.world_id = world_def.world_id
+LEFT JOIN m_attribute_definitions global_def 
+  ON tea.key_name = global_def.key_name AND global_def.world_id IS NULL;
+```
+
+### 11.3 Prisma View モデル
+
+```prisma
+view VEntityAttributeDetail {
+  entityId        String   @map("entity_id")
+  keyName         String   @map("key_name")
+  keyValue        String   @map("key_value")
+  worldId         String   @map("world_id")
+  
+  // Resolved Metadata (Fallback applied)
+  category        String?
+  displayName     String?  @map("display_name")
+  valueType       String?  @map("value_type")
+  description     String?
+  displayOrder    Int?     @map("display_order")
+  visibility      String?
+  visibilityParam String?  @map("visibility_param")
+  updatedAt       DateTime @map("updated_at")
+
+  @@unique([entityId, keyName])
+  @@map("v_entity_attribute_details")
+}
+```
+
+### 11.4 使用例
+
+```typescript
+// カテゴリ別に属性を取得（Viewを使用）
+const stateAttributes = await prisma.vEntityAttributeDetail.findMany({
+  where: {
+    entityId: 'some-entity-id',
+    category: 'state'
+  },
+  orderBy: { displayOrder: 'asc' }
+});
+```
+
+---
+
+## 12. チェックリスト
 
 - [ ] 統合テーブル構造（m/t/h_entity_attributes）の妥当性
 - [ ] 定数管理（m_global_constants）への投入内容
