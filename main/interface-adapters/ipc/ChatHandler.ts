@@ -5,8 +5,8 @@
 import { ipcMain } from 'electron';
 import { SendMessageUseCase } from '../../application/usecases/chat/SendMessageUseCase';
 import { IChatRepository } from '../../domain/repositories/IChatRepository';
-
 import { IEntityRepository } from '../../domain/repositories/IEntityRepository';
+import { PrismaUserProfileRepository } from '../../infrastructure/repositories/PrismaUserProfileRepository';
 
 /**
  * チャットIPCハンドラを登録
@@ -14,7 +14,8 @@ import { IEntityRepository } from '../../domain/repositories/IEntityRepository';
 export function registerChatHandler(
     useCase: SendMessageUseCase,
     chatRepository: IChatRepository,
-    entityRepository: IEntityRepository
+    entityRepository: IEntityRepository,
+    userProfileRepository: PrismaUserProfileRepository
 ) {
     console.log('[IPC] Registering chat handlers...');
 
@@ -35,10 +36,15 @@ export function registerChatHandler(
                 history: params.history
             });
 
-            return response;
-        } catch (e) {
+            return { success: true, data: response };
+        } catch (e: any) {
             console.error('[ChatHandler] Error:', e);
-            throw e; // フロントエンドにエラーを伝播
+            // Return error as object instead of throwing to prevent Electron error dialog
+            return {
+                success: false,
+                error: e.name || 'Error',
+                message: e.message || 'Unknown error occurred'
+            };
         }
     });
 
@@ -48,12 +54,29 @@ export function registerChatHandler(
 
         const messages = await chatRepository.findByWorldId(worldId);
 
+        // Fetch player name from active profile
+        let playerName = 'Player';
+        try {
+            const globalSettings = await userProfileRepository.getGlobalSettings();
+            const activeProfileIdSetting = globalSettings.find(s => s.keyName === 'sys.active_profile');
+            if (activeProfileIdSetting && activeProfileIdSetting.keyValue) {
+                const profileId = parseInt(activeProfileIdSetting.keyValue);
+                const profileSettings = await userProfileRepository.getProfileSettings(profileId);
+                const nameSetting = profileSettings.find(s => s.keyName === 'PlayerName');
+                if (nameSetting && nameSetting.keyValue) {
+                    playerName = nameSetting.keyValue;
+                }
+            }
+        } catch (e) {
+            console.warn('[ChatHandler] Failed to load player name:', e);
+        }
+
         // フロントエンド用形式に変換 (Promise.allで並列処理)
         return Promise.all(messages.map(async msg => {
             let speakerName = 'NPC';
 
             if (msg.isFromPlayer()) {
-                speakerName = 'Player';
+                speakerName = playerName;
             } else if (msg.entityId) {
                 // エンティティIDから名前を取得
                 const entity = await entityRepository.findById(msg.entityId);

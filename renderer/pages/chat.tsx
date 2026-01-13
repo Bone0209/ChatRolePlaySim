@@ -247,7 +247,7 @@ const SortableWidget = ({ id, onRemove, children }: SortableWidgetProps) => {
 };
 
 // --- Right Dock Component ---
-const RightDock = ({ activeWidgets, onToggleWidget }: { activeWidgets: SidePanelContent[], onToggleWidget: (id: SidePanelContent) => void }) => {
+const RightDock = ({ activeWidgets, onToggleWidget, onOpenSettings }: { activeWidgets: SidePanelContent[], onToggleWidget: (id: SidePanelContent) => void, onOpenSettings: () => void }) => {
     const allWidgets: SidePanelContent[] = ['status', 'inventory', 'skills', 'quests', 'map'];
 
     // Helper to get icon
@@ -283,6 +283,17 @@ const RightDock = ({ activeWidgets, onToggleWidget }: { activeWidgets: SidePanel
                     </div>
                 );
             })}
+
+            {/* Settings Button at Bottom */}
+            <div className="mt-auto">
+                <button
+                    onClick={onOpenSettings}
+                    className="p-3 rounded-xl text-zinc-500 hover:text-zinc-200 hover:bg-white/5 transition-all duration-300"
+                    title="Settings"
+                >
+                    <Settings size={20} />
+                </button>
+            </div>
         </div>
     );
 };
@@ -459,6 +470,9 @@ export default function Home() {
     // Viewing specific entity details
     const [viewingEntity, setViewingEntity] = useState<any | null>(null);
 
+    // Player name from profile
+    const [playerName, setPlayerName] = useState<string>('Player');
+
     const handleCharacterClick = async (entityId?: string, name?: string) => {
         if (!entityId && !name) return;
 
@@ -492,6 +506,24 @@ export default function Home() {
 
         const loadInitialState = async () => {
             try {
+                // 0. Load Player Name from Active Profile
+                let loadedPlayerName = 'Player'; // Default
+                if (window.electron?.profile) {
+                    const globalSettings = await window.electron.profile.getGlobalSettings();
+                    const activeProfileIdSetting = globalSettings.find((s: any) => s.keyName === 'sys.active_profile');
+                    if (activeProfileIdSetting && activeProfileIdSetting.keyValue) {
+                        const profileId = parseInt(activeProfileIdSetting.keyValue);
+                        const profileSettings = await window.electron.profile.getSettings(profileId);
+                        const nameSetting = profileSettings.find((s: any) => s.keyName === 'PlayerName');
+                        if (nameSetting && nameSetting.keyValue) {
+                            loadedPlayerName = nameSetting.keyValue;
+                        }
+                    }
+                }
+                if (isMounted) {
+                    setPlayerName(loadedPlayerName);
+                }
+
                 // 1. Load History
                 const history = await window.electron?.game.getChatHistory(worldId as string);
                 if (isMounted && history && history.length > 0) {
@@ -501,7 +533,7 @@ export default function Home() {
                         id: index, // Use simple index for history, or hash
                         text: h.content,
                         sender: (h.role === 'user' ? 'user' : 'bot') as 'user' | 'bot',
-                        senderName: h.speakerName || (h.role === 'user' ? 'Player' : 'System'),
+                        senderName: h.speakerName || (h.role === 'user' ? loadedPlayerName : 'System'),
                         entityId: h.entityId,
                         emotion: ''
                     }));
@@ -590,7 +622,7 @@ export default function Home() {
             text: text,
             emotion: emotion,
             sender: 'user',
-            senderName: 'Player',
+            senderName: playerName,
         };
 
         setMessages((prev) => [...prev, newMessage]);
@@ -609,7 +641,30 @@ export default function Home() {
                     content: m.text
                 }));
                 // Call Electron API with message AND history AND targetId AND worldId (positional args)
-                replyText = await window.electron.chat(text, apiHistory, selectedTarget?.id, worldId as string);
+                const result = await window.electron.chat(text, apiHistory, selectedTarget?.id, worldId as string);
+
+                // Handle new response format
+                if (result && typeof result === 'object' && 'success' in result) {
+                    const res = result as { success: boolean; data?: string; error?: string; message?: string };
+                    if (!res.success) {
+                        // Check for missing configuration error
+                        if (res.error === 'MissingConfigurationError' || (res.message && res.message.includes('LLM configuration is missing'))) {
+                            setIsLoading(false);
+                            const proceed = window.confirm("LLMの設定が不足しています。設定ページに移動しますか？\n(API Key/Endpoint configuration is missing. Go to Settings?)");
+                            if (proceed) {
+                                router.push('/settings');
+                                return;
+                            }
+                            // User chose not to go to settings, show error instead
+                            throw new Error('LLM設定が不足しています。設定ページで設定してください。');
+                        }
+                        throw new Error(res.message || 'Unknown error');
+                    }
+                    replyText = res.data || '';
+                } else if (result) {
+                    // Legacy format (direct string response)
+                    replyText = result as string;
+                }
             } else {
                 // Fallback / Mock
                 await new Promise(r => setTimeout(r, 500));
@@ -638,11 +693,12 @@ export default function Home() {
                 setGameState(newState as any);
             }
 
-        } catch (error) {
+        } catch (error: any) {
             console.error("Chat Error:", error);
+
             const errorResponse: Message = {
                 id: Date.now() + 1,
-                text: "エラーが発生しました。",
+                text: `エラーが発生しました: ${error.message || 'Unknown Error'}`,
                 sender: 'bot',
                 senderName: 'System',
             };
@@ -818,7 +874,11 @@ export default function Home() {
                 </div>
 
                 {/* Right Dock */}
-                <RightDock activeWidgets={activeWidgets} onToggleWidget={toggleWidget} />
+                <RightDock
+                    activeWidgets={activeWidgets}
+                    onToggleWidget={toggleWidget}
+                    onOpenSettings={() => router.push('/settings')}
+                />
 
                 {/* Character Detail Modal */}
                 {viewingEntity && (

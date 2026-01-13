@@ -13,5 +13,19 @@ contextBridge.exposeInMainWorld('electron', {
         getState: (worldId: string) => ipcRenderer.invoke('game:get-state', worldId),
         getChatHistory: (worldId: string) => ipcRenderer.invoke('game:get-chat-history', worldId),
         getEntity: (entityId: string) => ipcRenderer.invoke('game:get-entity', entityId),
+    },
+    profile: {
+        list: () => ipcRenderer.invoke('profile:list'),
+        create: (name: string) => ipcRenderer.invoke('profile:create', name),
+        switch: (id: number) => ipcRenderer.invoke('profile:switch', id),
+        getSettings: (id: number) => ipcRenderer.invoke('profile:get-settings', id),
+        updateSetting: (data: { id: number, key: string, value: string, type: string }) => ipcRenderer.invoke('profile:update-setting', data),
+        getGlobalSettings: () => ipcRenderer.invoke('profile:get-global-settings'),
+        updateGlobalSetting: (data: { key: string, value: string, type: string }) => ipcRenderer.invoke('profile:update-global-setting', data),
+        delete: (id: number) => ipcRenderer.invoke('profile:delete', id),
+        deleteSetting: (data: { id: number, key: string }) => ipcRenderer.invoke('profile:delete-setting', data),
+        testConnection: (target: 'first' | 'second') => ipcRenderer.invoke('profile:test-connection', target),
     }
 });
+
+

@@ -3,11 +3,7 @@ import Head from 'next/head';
 import { useRouter } from 'next/router';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Plus, Play, Globe } from 'lucide-react';
-
-// Types from global.d.ts
-
-// Extend window interface removed (use global.d.ts)
+import { Plus, Play, Globe, Settings } from 'lucide-react';
 
 export default function WorldSelect() {
     const router = useRouter();
@@ -20,7 +16,6 @@ export default function WorldSelect() {
     }, []);
 
     const handlePlayLevel = (worldId: string) => {
-        // Single window mode: Navigate directly
         console.log(`Navigating to world ${worldId}`);
         router.push(`/chat?worldId=${worldId}`);
     };
@@ -33,13 +28,18 @@ export default function WorldSelect() {
             <div className="flex flex-col h-screen p-6 space-y-6">
 
                 {/* Header */}
-                <div className="text-center space-y-2">
-                    <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-blue-400 to-purple-500 text-transparent bg-clip-text">
-                        Select World
-                    </h1>
-                    <p className="text-muted-foreground text-sm">
-                        Choose your adventure
-                    </p>
+                <div className="flex items-center justify-between">
+                    <div className="space-y-2">
+                        <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-blue-400 to-purple-500 text-transparent bg-clip-text">
+                            Select World
+                        </h1>
+                        <p className="text-muted-foreground text-sm">
+                            Choose your adventure
+                        </p>
+                    </div>
+                    <Button variant="ghost" size="icon" onClick={() => router.push('/settings')}>
+                        <Settings className="w-6 h-6 text-muted-foreground hover:text-primary transition-colors" />
+                    </Button>
                 </div>
 
                 {/* World List */}

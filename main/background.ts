@@ -2,7 +2,8 @@
 import {
     PrismaWorldRepository,
     PrismaEntityRepository,
-    PrismaChatRepository
+    PrismaChatRepository,
+    PrismaUserProfileRepository
 } from './infrastructure/repositories';
 
 // Gateways
@@ -24,8 +25,10 @@ import { SendMessageUseCase } from './application/usecases/chat/SendMessageUseCa
 import {
     registerWorldHandler,
     registerGameHandler,
-    registerChatHandler
+    registerChatHandler,
+    setupUserProfileHandlers
 } from './interface-adapters/ipc';
+
 
 import { app, BrowserWindow, ipcMain, screen } from 'electron';
 import path from 'path';
@@ -133,6 +136,7 @@ function setupHandlers() {
     const worldRepo = new PrismaWorldRepository();
     const entityRepo = new PrismaEntityRepository();
     const chatRepo = new PrismaChatRepository();
+    const userProfileRepo = new PrismaUserProfileRepository();
 
     // 2. Gateways
     const llmGateway = getLlmGateway();
@@ -175,7 +179,8 @@ function setupHandlers() {
         entityRepo,
         worldRepo,
         llmGateway,
-        updateAffectionUC
+        updateAffectionUC,
+        userProfileRepo
     );
 
     // 4. Register Handlers
@@ -189,8 +194,10 @@ function setupHandlers() {
 
     // Actually, let's register ChatHandler first as it's the target.
     registerGameHandler(entityRepo, getSteps, setSteps);
-    registerChatHandler(sendMessageUC, chatRepo, entityRepo);
+    registerChatHandler(sendMessageUC, chatRepo, entityRepo, userProfileRepo);
+    setupUserProfileHandlers();
 }
+
 
 // Call setup
 setupHandlers();

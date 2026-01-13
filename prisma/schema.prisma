@@ -182,3 +182,36 @@ model TChat {
 
   @@map("t_chats")
 }
+
+// --- User Profile & Settings ---
+
+model TUserProfileList {
+  id          Int      @id @default(autoincrement())
+  profileName String   @map("profile_name")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  profiles    TUserProfile[]
+
+  @@map("t_user_profile_lists")
+}
+
+model TUserProfile {
+  listId    Int    @map("list_id")
+  keyName   String @map("key_name")
+  keyValue  String @map("key_value")
+  valueType String @map("value_type") // 'string', 'number', 'boolean'
+
+  profileList TUserProfileList @relation(fields: [listId], references: [id], onDelete: Cascade)
+
+  @@id([listId, keyName])
+  @@map("t_user_profiles")
+}
+
+model TUserSetting {
+  keyName   String @id @map("key_name")
+  keyValue  String @map("key_value")
+  valueType String @map("value_type") // 'string', 'number', 'boolean'
+
+  @@map("t_user_settings")
+}

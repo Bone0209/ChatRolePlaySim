@@ -5,3 +5,4 @@
 export { PrismaWorldRepository } from './PrismaWorldRepository';
 export { PrismaEntityRepository } from './PrismaEntityRepository';
 export { PrismaChatRepository } from './PrismaChatRepository';
+export { PrismaUserProfileRepository } from './PrismaUserProfileRepository';
