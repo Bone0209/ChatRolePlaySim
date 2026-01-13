@@ -7,7 +7,19 @@ import { getTimeDescription, getHpDescription, getMpDescription } from '@/lib/st
 
 export default function Status() {
     // State
-    const [gameState, setGameState] = useState({ totalSteps: 0, day: 1, timeOfDay: 'Morning', currentStep: 0 });
+    const [gameState, setGameState] = useState<any>({
+        totalSteps: 0,
+        day: 1,
+        timeOfDay: 'Morning',
+        currentStep: 0,
+        playerStatus: {
+            condition: 'Normal',
+            hp: 100,
+            maxHp: 100,
+            mp: 50,
+            maxMp: 50
+        }
+    });
 
     const router = useRouter();
     const { worldId } = router.query;
@@ -21,9 +33,9 @@ export default function Status() {
 
     // Converted to generic list structure
     const statusItems = [
-        { name: "Condition", display_text: "Normal" },
-        { name: "Health", display_text: getHpDescription(100, 100) },
-        { name: "Mind", display_text: getMpDescription(50, 50) }
+        { name: "Condition", display_text: gameState.playerStatus?.condition || "Normal" },
+        { name: "Health", display_text: getHpDescription(gameState.playerStatus?.hp || 100, gameState.playerStatus?.maxHp || 100) },
+        { name: "Mind", display_text: getMpDescription(gameState.playerStatus?.mp || 50, gameState.playerStatus?.maxMp || 50) }
     ];
 
     return (

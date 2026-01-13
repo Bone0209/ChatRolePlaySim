@@ -58,11 +58,6 @@ export function registerGameHandler(
         return detail;
     });
 
-    // チャット履歴取得（別ハンドラに移動すべきだが、既存互換のため残す）
-    ipcMain.handle('game:get-chat-history', async (event, worldId: string) => {
-        // この処理は ChatHandler に委譲すべき
-        // 暫定的に空配列を返す
-        console.warn('[GameHandler] game:get-chat-history should be moved to ChatHandler');
-        return [];
-    });
+    // チャット履歴取得は ChatHandler に移動済み
+    // ipcMain.handle('game:get-chat-history', ...) は削除
 }

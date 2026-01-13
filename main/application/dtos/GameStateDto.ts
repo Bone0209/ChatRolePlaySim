@@ -11,6 +11,18 @@ export interface NpcInfoDto {
     role: string;
 }
 
+/** プレイヤー状態DTO */
+export interface PlayerStatusDto {
+    name: string;
+    level: number;
+    job: string;
+    hp: number;
+    maxHp: number;
+    mp: number;
+    maxMp: number;
+    condition: string;
+}
+
 /**
  * ゲーム状態DTO
  */
@@ -29,6 +41,8 @@ export interface GameStateDto {
     locationId: string;
     /** 現在地にいるNPC一覧 */
     npcs: NpcInfoDto[];
+    /** プレイヤー状態 */
+    playerStatus: PlayerStatusDto;
 }
 
 /**
@@ -42,6 +56,16 @@ export function createDefaultGameState(): GameStateDto {
         currentStep: 0,
         locationName: 'Unknown',
         locationId: '',
-        npcs: []
+        npcs: [],
+        playerStatus: {
+            name: 'Player',
+            level: 1,
+            job: 'Adventurer',
+            hp: 100,
+            maxHp: 100,
+            mp: 50,
+            maxMp: 50,
+            condition: 'Normal'
+        }
     };
 }
