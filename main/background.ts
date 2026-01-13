@@ -3,7 +3,8 @@ import {
     PrismaWorldRepository,
     PrismaEntityRepository,
     PrismaChatRepository,
-    PrismaUserProfileRepository
+    PrismaUserProfileRepository,
+    PrismaApiLogRepository
 } from './infrastructure/repositories';
 
 // Gateways
@@ -137,9 +138,10 @@ function setupHandlers() {
     const entityRepo = new PrismaEntityRepository();
     const chatRepo = new PrismaChatRepository();
     const userProfileRepo = new PrismaUserProfileRepository();
+    const apiLogRepo = new PrismaApiLogRepository();
 
     // 2. Gateways
-    const llmGateway = getLlmGateway();
+    const llmGateway = getLlmGateway(apiLogRepo);
 
     // 3. Use Cases
     // World
