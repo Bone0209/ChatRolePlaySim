@@ -35,6 +35,18 @@ declare global {
                 getChatHistory: (worldId: string) => Promise<any[]>;
                 getEntity: (entityId: string) => Promise<any>;
             };
+            profile: {
+                list: () => Promise<any[]>;
+                create: (name: string) => Promise<any>;
+                switch: (id: number) => Promise<any>;
+                getSettings: (id: number) => Promise<any[]>;
+                updateSetting: (data: { id: number; key: string; value: string; type: string }) => Promise<any>;
+                getGlobalSettings: () => Promise<any[]>;
+                updateGlobalSetting: (data: { key: string; value: string; type: string }) => Promise<any>;
+                delete: (id: number) => Promise<void>;
+                deleteSetting: (data: { id: number; key: string }) => Promise<void>;
+                testConnection: (target: 'first' | 'second') => Promise<{ success: boolean; message: string }>;
+            };
         };
     }
 }

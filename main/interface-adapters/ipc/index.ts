@@ -5,3 +5,5 @@
 export { registerWorldHandler } from './WorldHandler';
 export { registerGameHandler } from './GameHandler';
 export * from './ChatHandler';
+export * from './UserProfileHandler';
+

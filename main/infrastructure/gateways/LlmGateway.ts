@@ -17,6 +17,8 @@ export interface LlmRequestOptions {
     timeoutMs?: number;
     /** レスポンスフォーマット */
     responseFormat?: 'text' | 'json';
+    /** 設定の上書き (API Keyなど) */
+    configOverride?: ModelConfig;
 }
 
 /** LLMメッセージ */
@@ -48,7 +50,12 @@ export class LlmGateway {
         options: LlmRequestOptions = {}
     ): Promise<LlmResponse> {
         const config = getAppConfig();
-        const modelConfig = options.model === 'sub' ? config.subModel : config.mainModel;
+        let modelConfig = options.model === 'sub' ? config.subModel : config.mainModel;
+
+        if (options.configOverride) {
+            modelConfig = options.configOverride;
+        }
+
         const temperature = options.temperature ?? config.temperature;
         const timeoutMs = options.timeoutMs ?? 180000;
 
@@ -301,6 +308,8 @@ export class LlmGateway {
         allEntities: any[];
         history: any[];
         actionAnalysis: any;
+        config?: ModelConfig;
+        playerProfile?: { name: string; gender: string; description: string };
     }): Promise<string> {
         const { PromptTemplate } = await import('../prompts/PromptTemplate');
         const path = await import('path');
@@ -311,10 +320,19 @@ export class LlmGateway {
         const template = new PromptTemplate(promptPath);
 
         // コンテキストの構築 (パラメータ等はDTOやEntityから抽出)
+        const player = context.playerProfile || { name: 'Player', gender: 'Unknown', description: '' };
         const promptText = template.render({
             characterName: context.targetNpc.name,
-            // ... 他の変数を埋め込む
-            // 既存の user_prompt.md の変数に合わせる必要あり
+            targetName: context.targetNpc.name,
+            // Player profile data
+            playerName: player.name,
+            playerGender: player.gender,
+            playerDescription: player.description || 'N/A',
+            playerCondition: 'Normal', // TODO: Get from game state
+            // Other context
+            worldTime: '00:00', // TODO
+            location: 'Unknown', // TODO
+            weather: 'Clear', // TODO
             userInput: context.playerMessage,
             actionAnalysis: JSON.stringify(context.actionAnalysis)
         });
@@ -326,7 +344,10 @@ export class LlmGateway {
             { role: 'user', content: context.playerMessage }
         ];
 
-        const response = await this.generateCompletion(messages, { model: 'main' });
+        const response = await this.generateCompletion(messages, {
+            model: 'main',
+            configOverride: context.config
+        });
         return response.content;
     }
 }
