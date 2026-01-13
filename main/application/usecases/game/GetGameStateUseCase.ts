@@ -60,6 +60,15 @@ export class GetGameStateUseCase {
             }));
         }
 
+        // プレイヤーステータス抽出
+        const hp = (player.getParameterValue('hp') as number) || 100;
+        const maxHp = (player.getParameterValue('maxHp') as number) || 100;
+        const mp = (player.getParameterValue('mp') as number) || 50;
+        const maxMp = (player.getParameterValue('maxMp') as number) || 50;
+        const condition = (player.getParameterValue('condition') as string) || 'Normal';
+        const level = (player.getParameterValue('level') as number) || 1;
+        const job = (player.getParameterValue('job') as string) || 'Adventurer';
+
         return {
             totalSteps,
             day,
@@ -67,7 +76,17 @@ export class GetGameStateUseCase {
             currentStep,
             locationName,
             locationId,
-            npcs
+            npcs,
+            playerStatus: {
+                name: player.name,
+                level,
+                job,
+                hp,
+                maxHp,
+                mp,
+                maxMp,
+                condition
+            }
         };
     }
 

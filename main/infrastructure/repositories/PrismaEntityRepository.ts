@@ -213,20 +213,25 @@ export class PrismaEntityRepository implements IEntityRepository {
         const newData = { ...currentData, [key]: newValueJson };
 
         // トランザクションで更新と履歴記録を実行
-        await (prisma as any).$transaction([
-            (prisma as any)[tables.current].update({
-                where: { entityId },
-                data: { data: newData }
-            }),
-            (prisma as any)[tables.history].create({
-                data: {
-                    entityId,
-                    diff
-                }
-            })
-        ]);
-
-        console.log(`[EntityRepository] Updated ${category}.${key} for ${entityId}. Logged to History.`);
+        try {
+            await (prisma as any).$transaction([
+                (prisma as any)[tables.current].update({
+                    where: { entityId },
+                    data: { data: newData }
+                }),
+                (prisma as any)[tables.history].create({
+                    data: {
+                        entityId,
+                        diff
+                    }
+                })
+            ]);
+            console.log(`[EntityRepository] Updated ${category}.${key} for ${entityId}. New Value:`, JSON.stringify(newValueJson));
+            console.log(`[EntityRepository] New Data for ${tables.current}:`, JSON.stringify(newData).substring(0, 100) + '...');
+        } catch (error) {
+            console.error(`[EntityRepository] Detailed Debug: Failed transaction. Current Table: ${tables.current}, Key: ${key}, Value: ${JSON.stringify(newValueJson)}`);
+            throw error;
+        }
     }
 
     /**

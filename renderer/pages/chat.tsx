@@ -16,6 +16,19 @@ interface GameState {
     day: number;
     timeOfDay: string;
     currentStep: number;
+    locationName: string;
+    level: number;
+    npcs: Array<{ id: string; name: string; role: string }>;
+    playerStatus?: {
+        name: string;
+        level: number;
+        job: string;
+        hp: number;
+        maxHp: number;
+        mp: number;
+        maxMp: number;
+        condition: string;
+    };
 }
 
 interface Message {
@@ -427,7 +440,15 @@ export default function Home() {
     const bottomRef = useRef<HTMLDivElement>(null);
 
     // Game State
-    const [gameState, setGameState] = useState<GameState>({ totalSteps: 0, day: 1, timeOfDay: 'Start', currentStep: 0 });
+    const [gameState, setGameState] = useState<GameState>({
+        totalSteps: 0,
+        day: 1,
+        timeOfDay: 'Start',
+        currentStep: 0,
+        locationName: 'Unknown',
+        level: 1,
+        npcs: []
+    });
 
     const [targets, setTargets] = useState<{ id: string; name: string }[]>([]);
     const [selectedTarget, setSelectedTarget] = useState<{ id: string; name: string } | null>(null);

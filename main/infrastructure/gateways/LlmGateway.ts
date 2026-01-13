@@ -56,9 +56,11 @@ export class LlmGateway {
             model: modelConfig.model,
             messages,
             temperature,
-            ...(options.responseFormat === 'json' && {
-                response_format: { type: 'json_object' }
-            })
+            // Strict 'json_object' mode causes errors with some providers/proxies (e.g. Minimax or strict schemas).
+            // We rely on text parsing in generateJson instead.
+            // ...(options.responseFormat === 'json' && {
+            //     response_format: { type: 'json_object' }
+            // })
         };
 
         console.log(`[LlmGateway] Calling ${modelConfig.model} at ${modelConfig.baseUrl}`);
@@ -84,8 +86,9 @@ export class LlmGateway {
         try {
             data = JSON.parse(responseText);
         } catch (e) {
-            console.warn('[LlmGateway] Response is not valid JSON:', responseText.substring(0, 100));
-            throw new Error(`LLM API returned invalid JSON: ${responseText.substring(0, 50)}...`);
+            console.warn('[LlmGateway] Response is not valid JSON:', responseText.substring(0, 500));
+            console.warn('[LlmGateway] Status:', response.status, 'OK:', response.ok);
+            throw new Error(`LLM API returned invalid JSON (${response.status}): ${responseText.substring(0, 100)}...`);
         }
 
         const content = data.choices?.[0]?.message?.content || '';
@@ -125,6 +128,13 @@ export class LlmGateway {
         const jsonBlock = content.match(/```json?\s*([\s\S]*?)```/);
         if (jsonBlock) {
             content = jsonBlock[1].trim();
+        } else {
+            // Markdownがない場合、最初の '{' から最後の '}' までを抽出する試み
+            const firstBrace = content.indexOf('{');
+            const lastBrace = content.lastIndexOf('}');
+            if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+                content = content.substring(firstBrace, lastBrace + 1);
+            }
         }
 
         try {
@@ -195,6 +205,10 @@ export class LlmGateway {
      * Thinkingモデルのレスポンスをクリーンアップ
      * <think>...</think> タグを除去
      */
+    /**
+     * Thinkingモデルのレスポンスをクリーンアップ
+     * <think>...</think> タグを除去
+     */
     private cleanThinkingModelResponse(content: string): string {
         // <think>...</think> タグを除去
         let cleaned = content.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
@@ -205,6 +219,115 @@ export class LlmGateway {
         }
 
         return cleaned;
+    }
+
+    // --- Domain Specific Methods ---
+
+    /**
+     * ユーザーアクションの分析
+     */
+    async analyzeAction(
+        userInput: string,
+        context: {
+            worldTime: string;
+            location: string;
+            targetName: string;
+            targetRole: string;
+            targetAffection: number;
+        }
+    ): Promise<any> {
+        const { PromptTemplate } = await import('../prompts/PromptTemplate');
+        const path = await import('path');
+
+        // プロンプトパスの解決 (開発環境と本番環境で異なる可能性対応)
+        const promptPath = path.join(process.cwd(), 'main', 'prompts', 'action_analysis.md');
+        const template = new PromptTemplate(promptPath);
+
+        const promptText = template.render({
+            worldTime: context.worldTime,
+            location: context.location,
+            targetName: context.targetName,
+            targetRole: context.targetRole,
+            targetAffection: context.targetAffection,
+            userInput: userInput
+        });
+
+        // System/User分割はテンプレート構造によるが、ここでは簡易的にSystem=Prompt, User=Emptyまたは統合
+        // action_analysis.md は [System] [User] タグ等を含む形式かもしれないため、
+        // 既存のファイルをパースするか、単純にUserメッセージとして送るか。
+        // ここでは単純化のため全文をSystemプロンプトとして扱う、またはgenerateJsonの引数構造に合わせる。
+        // 既存の action_analysis.md は全体が指示書なので、Systemプロンプトとして送信し、Userの入力は最後に付加済みとみなす。
+
+        return this.generateJson(promptText, "Parse the above input.", { responseFormat: 'json', model: 'sub' });
+    }
+
+    /**
+     * 好感度の分析
+     */
+    async analyzeAffection(
+        userMessage: string,
+        modelResponse: string,
+        targetName: string,
+        currentAffection: number
+    ): Promise<{ affection_delta: number; reason: string }> {
+        const { PromptTemplate } = await import('../prompts/PromptTemplate');
+        const path = await import('path');
+
+        const promptPath = path.join(process.cwd(), 'main', 'prompts', 'affection_analysis.md');
+        const template = new PromptTemplate(promptPath);
+
+        const promptText = template.render({
+            userMessage,
+            modelResponse,
+            targetName,
+            currentAffection
+        });
+
+        try {
+            return await this.generateJson(promptText, "Analyze affection change.", { responseFormat: 'json', model: 'sub' });
+        } catch (e) {
+            console.warn("Affection analysis failed, defaulting to 0 change", e);
+            return { affection_delta: 0, reason: "Analysis failed" };
+        }
+    }
+
+    /**
+     * ロールプレイ応答の生成
+     */
+    async generateRolePlayResponse(context: {
+        world: any;
+        playerMessage: string;
+        targetNpc: any;
+        allEntities: any[];
+        history: any[];
+        actionAnalysis: any;
+    }): Promise<string> {
+        const { PromptTemplate } = await import('../prompts/PromptTemplate');
+        const path = await import('path');
+
+        // システムプロンプト (user_prompt.md または system.md を使用)
+        // ここでは user_prompt.md に動的コンテキストを注入する前提
+        const promptPath = path.join(process.cwd(), 'main', 'prompts', 'user_prompt.md');
+        const template = new PromptTemplate(promptPath);
+
+        // コンテキストの構築 (パラメータ等はDTOやEntityから抽出)
+        const promptText = template.render({
+            characterName: context.targetNpc.name,
+            // ... 他の変数を埋め込む
+            // 既存の user_prompt.md の変数に合わせる必要あり
+            userInput: context.playerMessage,
+            actionAnalysis: JSON.stringify(context.actionAnalysis)
+        });
+
+        // 実際のチャット履歴をメッセージ配列に変換
+        const messages: any[] = [
+            { role: 'system', content: promptText }, // システム指示として扱う
+            ...context.history.map(h => ({ role: h.role, content: h.content })),
+            { role: 'user', content: context.playerMessage }
+        ];
+
+        const response = await this.generateCompletion(messages, { model: 'main' });
+        return response.content;
     }
 }
 

@@ -137,8 +137,12 @@ export class GameEntity {
     /**
      * 好感度を取得（なければ初期値0を返す）
      */
+    /**
+     * 好感度を取得（なければ初期値0を返す）
+     */
     getAffection(): number {
-        const affection = this._state.get('affection');
+        // Migration: Check parameter first, then state
+        const affection = this._parameter.get('affection') || this._state.get('affection');
         if (affection) {
             return affection.value as number;
         }
@@ -188,11 +192,31 @@ export class GameEntity {
     }
 
     /**
+     * Parameterパラメータを更新（新しいエンティティを返す）
+     */
+    updateParameterValue(key: string, value: ParameterValue<unknown>): GameEntity {
+        const newParameter = new Map(this._parameter);
+        newParameter.set(key, value);
+
+        return new GameEntity(
+            this._id,
+            this._worldId,
+            this._type,
+            this._name,
+            this._description,
+            this._createdAt,
+            this._persona,
+            newParameter,
+            this._state
+        );
+    }
+
+    /**
      * 好感度を更新（新しいエンティティを返す）
      */
     updateAffection(newValue: number): GameEntity {
         const affectionParam = ParameterValue.create(newValue, Visibility.private());
-        return this.updateState('affection', affectionParam);
+        return this.updateParameterValue('affection', affectionParam);
     }
 
     /**
@@ -236,18 +260,21 @@ export class GameEntity {
     /**
      * すべてのパラメータをフラットなオブジェクトとして取得
      */
-    getAllParameters(): Record<string, { val: unknown; vis: string }> {
-        const result: Record<string, { val: unknown; vis: string }> = {};
+    getAllParameters(): Record<string, { val: unknown; vis: string; category: string }> {
+        const result: Record<string, { val: unknown; vis: string; category: string }> = {};
 
-        const addAll = (map: ParameterMap) => {
+        const addAll = (map: ParameterMap, category: string) => {
             map.forEach((param, key) => {
-                result[key] = param.toJson();
+                result[key] = {
+                    ...param.toJson(),
+                    category
+                };
             });
         };
 
-        addAll(this._state);
-        addAll(this._persona);
-        addAll(this._parameter);
+        addAll(this._state, 'state');
+        addAll(this._persona, 'persona');
+        addAll(this._parameter, 'parameter');
 
         return result;
     }

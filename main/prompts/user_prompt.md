@@ -30,6 +30,9 @@ You are roleplaying as **{{targetName}}**.
 ## User Input
 > {{userInput}}
 
+## Action Analysis
+{{actionAnalysis}}
+
 ## Instructions
 1. **Analyze**: Determine user intent (Talk vs Action) and safety.
 2. **Roleplay**: Generate a response as {{targetName}}.

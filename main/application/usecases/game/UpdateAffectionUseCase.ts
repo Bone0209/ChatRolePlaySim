@@ -50,7 +50,7 @@ export class UpdateAffectionUseCase {
         const newValue = ParameterValue.create(newAffection, Visibility.private());
         await this.entityRepository.updateParameter(
             input.entityId,
-            'state',
+            'parameter',
             'affection',
             newValue
         );
