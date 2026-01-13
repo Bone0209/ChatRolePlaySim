@@ -6,6 +6,7 @@
 
 import { getAppConfig } from '../config';
 import type { ModelConfig } from '../config';
+import { IApiLogRepository } from '../../domain/repositories/IApiLogRepository';
 
 /** LLMリクエストのオプション */
 export interface LlmRequestOptions {
@@ -19,6 +20,12 @@ export interface LlmRequestOptions {
     responseFormat?: 'text' | 'json';
     /** 設定の上書き (API Keyなど) */
     configOverride?: ModelConfig;
+    /** ログ用メタデータ */
+    metadata?: {
+        worldId?: string;
+        entityId?: string;
+        apiType?: string;
+    };
 }
 
 /** LLMメッセージ */
@@ -38,6 +45,8 @@ export interface LlmResponse {
  * OpenAI互換APIを使用したLLMアクセスを提供
  */
 export class LlmGateway {
+    constructor(private apiLogRepository?: IApiLogRepository) { }
+
 
     /**
      * チャット補完を生成
@@ -49,6 +58,7 @@ export class LlmGateway {
         messages: LlmMessage[],
         options: LlmRequestOptions = {}
     ): Promise<LlmResponse> {
+        const startTime = Date.now();
         const config = getAppConfig();
         let modelConfig = options.model === 'sub' ? config.subModel : config.mainModel;
 
@@ -63,47 +73,83 @@ export class LlmGateway {
             model: modelConfig.model,
             messages,
             temperature,
-            // Strict 'json_object' mode causes errors with some providers/proxies (e.g. Minimax or strict schemas).
-            // We rely on text parsing in generateJson instead.
-            // ...(options.responseFormat === 'json' && {
-            //     response_format: { type: 'json_object' }
-            // })
         };
 
         console.log(`[LlmGateway] Calling ${modelConfig.model} at ${modelConfig.baseUrl}`);
 
-        const response = await this.fetchWithTimeout(
-            `${modelConfig.baseUrl}/chat/completions`,
-            {
-                method: 'POST',
-                headers: this.buildHeaders(modelConfig),
-                body: JSON.stringify(payload)
-            },
-            timeoutMs
-        );
-
-        if (!response.ok) {
-            const errorBody = await response.text();
-            throw new Error(`LLM API Error (${response.status}): ${errorBody.substring(0, 200)}`);
-        }
-
-        const responseText = await response.text();
-        let data: any;
+        let responseText = '';
+        let statusCode = 0;
+        let errorMessage: string | undefined;
 
         try {
-            data = JSON.parse(responseText);
-        } catch (e) {
-            console.warn('[LlmGateway] Response is not valid JSON:', responseText.substring(0, 500));
-            console.warn('[LlmGateway] Status:', response.status, 'OK:', response.ok);
-            throw new Error(`LLM API returned invalid JSON (${response.status}): ${responseText.substring(0, 100)}...`);
+            const response = await this.fetchWithTimeout(
+                `${modelConfig.baseUrl}/chat/completions`,
+                {
+                    method: 'POST',
+                    headers: this.buildHeaders(modelConfig),
+                    body: JSON.stringify(payload)
+                },
+                timeoutMs
+            );
+
+            statusCode = response.status;
+
+            if (!response.ok) {
+                const errorBody = await response.text();
+                errorMessage = `LLM API Error (${response.status}): ${errorBody.substring(0, 200)}`;
+                throw new Error(errorMessage);
+            }
+
+            responseText = await response.text();
+            let data: any;
+
+            try {
+                data = JSON.parse(responseText);
+            } catch (e) {
+                console.warn('[LlmGateway] Response is not valid JSON:', responseText.substring(0, 500));
+                console.warn('[LlmGateway] Status:', response.status, 'OK:', response.ok);
+                errorMessage = `LLM API returned invalid JSON (${response.status})`;
+                throw new Error(`${errorMessage}: ${responseText.substring(0, 100)}...`);
+            }
+
+            const content = data.choices?.[0]?.message?.content || '';
+
+            // ログ記録 (成功)
+            if (this.apiLogRepository) {
+                this.apiLogRepository.create({
+                    apiType: options.metadata?.apiType || 'chat',
+                    modelName: modelConfig.model,
+                    request: JSON.stringify(payload),
+                    response: responseText,
+                    statusCode: statusCode,
+                    executionTimeMs: Date.now() - startTime,
+                    worldId: options.metadata?.worldId,
+                    entityId: options.metadata?.entityId
+                }).catch(err => console.error('[LlmGateway] Failed to log API call:', err));
+            }
+
+            return {
+                content: this.cleanThinkingModelResponse(content),
+                raw: data
+            };
+
+        } catch (error) {
+            // ログ記録 (エラー)
+            if (this.apiLogRepository) {
+                this.apiLogRepository.create({
+                    apiType: options.metadata?.apiType || 'chat',
+                    modelName: modelConfig.model,
+                    request: JSON.stringify(payload),
+                    response: responseText, // 部分的でも記録
+                    statusCode: statusCode || 500,
+                    errorMessage: errorMessage || (error as Error).message,
+                    executionTimeMs: Date.now() - startTime,
+                    worldId: options.metadata?.worldId,
+                    entityId: options.metadata?.entityId
+                }).catch(err => console.error('[LlmGateway] Failed to log API error:', err));
+            }
+            throw error;
         }
-
-        const content = data.choices?.[0]?.message?.content || '';
-
-        return {
-            content: this.cleanThinkingModelResponse(content),
-            raw: data
-        };
     }
 
     /**
@@ -265,7 +311,13 @@ export class LlmGateway {
         // ここでは単純化のため全文をSystemプロンプトとして扱う、またはgenerateJsonの引数構造に合わせる。
         // 既存の action_analysis.md は全体が指示書なので、Systemプロンプトとして送信し、Userの入力は最後に付加済みとみなす。
 
-        return this.generateJson(promptText, "Parse the above input.", { responseFormat: 'json', model: 'sub' });
+        return this.generateJson(promptText, "Parse the above input.", {
+            responseFormat: 'json',
+            model: 'sub',
+            metadata: {
+                apiType: 'action_analysis'
+            }
+        });
     }
 
     /**
@@ -291,7 +343,14 @@ export class LlmGateway {
         });
 
         try {
-            return await this.generateJson(promptText, "Analyze affection change.", { responseFormat: 'json', model: 'sub' });
+            return await this.generateJson(promptText, "Analyze affection change.", {
+                responseFormat: 'json',
+                model: 'sub',
+                metadata: {
+                    apiType: 'affection_judge',
+                    entityId: targetName // 名前で代用、IDがあればベスト
+                }
+            });
         } catch (e) {
             console.warn("Affection analysis failed, defaulting to 0 change", e);
             return { affection_delta: 0, reason: "Analysis failed" };
@@ -346,7 +405,12 @@ export class LlmGateway {
 
         const response = await this.generateCompletion(messages, {
             model: 'main',
-            configOverride: context.config
+            configOverride: context.config,
+            metadata: {
+                apiType: 'chat',
+                worldId: context.world.id,
+                entityId: context.targetNpc.id // entityIdとして記録
+            }
         });
         return response.content;
     }
@@ -358,9 +422,9 @@ let llmGatewayInstance: LlmGateway | null = null;
 /**
  * LlmGatewayのシングルトンインスタンスを取得
  */
-export function getLlmGateway(): LlmGateway {
+export function getLlmGateway(repo?: IApiLogRepository): LlmGateway {
     if (!llmGatewayInstance) {
-        llmGatewayInstance = new LlmGateway();
+        llmGatewayInstance = new LlmGateway(repo);
     }
     return llmGatewayInstance;
 }

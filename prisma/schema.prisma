@@ -20,6 +20,7 @@ model MWorld {
 
   entities  MEntity[]
   chats     TChat[]
+  apiLogs   TApiLog[]
 
   @@map("m_worlds")
 }
@@ -58,6 +59,8 @@ model MEntity {
   initialState     MEntityState?
   currentState     TEntityState?
   historyState     HEntityState[]
+
+  apiLogs          TApiLog[]
 
   @@map("m_entities")
 }
@@ -181,6 +184,29 @@ model TChat {
   entity    MEntity? @relation(fields: [entityId], references: [id], onDelete: SetNull)
 
   @@map("t_chats")
+}
+
+model TApiLog {
+  id              Int      @id @default(autoincrement())
+  apiType         String   @map("api_type")
+  modelName       String   @map("model_name")
+  request         String
+  response        String
+  statusCode      Int?     @map("status_code")
+  errorMessage    String?  @map("error_message")
+  executionTimeMs Int?     @map("execution_time_ms")
+  worldId         String?  @map("world_id")
+  entityId        String?  @map("entity_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  world   MWorld?  @relation(fields: [worldId], references: [id], onDelete: SetNull)
+  entity  MEntity? @relation(fields: [entityId], references: [id], onDelete: SetNull)
+
+  @@index([apiType, createdAt])
+  @@index([worldId, createdAt])
+  @@index([entityId, createdAt])
+  @@index([statusCode])
+  @@map("t_api_logs")
 }
 
 // --- User Profile & Settings ---
