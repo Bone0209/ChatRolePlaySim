@@ -20,3 +20,6 @@ renderer/out
 # Logs
 logs/
 *.log
+
+# Editor
+.obsidian
