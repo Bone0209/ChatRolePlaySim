@@ -39,7 +39,7 @@ export function registerWorldHandler(
 
     // ワールド作成
     ipcMain.handle('world:create', async (event, data: CreateWorldRequestDto) => {
-        const useCase = new CreateWorldUseCase(worldRepository, entityRepository);
+        const useCase = new CreateWorldUseCase(worldRepository, entityRepository, llmGateway, promptsPath);
         return useCase.execute(data);
     });
 
@@ -84,6 +84,37 @@ export function registerWorldHandler(
             const result = await llmGateway.generateText(systemPrompt, userPrompt, {
                 model: modelType as 'main' | 'sub'
             });
+
+            // --- レスポンス処理 ---
+
+            // タイトル: 不要な記号を除去
+            if (type === 'title') {
+                return result.replace(/["'「」]/g, '').trim();
+            }
+
+            // 説明文・NPC: JSONパース
+            if (type === 'description' || type === 'npc') {
+                try {
+                    // マークダウンコードブロックを除去
+                    const cleaned = result
+                        .replace(/```json\s*|\s*```/g, '') // ```json ... ```
+                        .replace(/```/g, '')              // ``` ... ```
+                        .trim();
+
+                    const json = JSON.parse(cleaned);
+
+                    if (type === 'description') {
+                        return json.description || cleaned;
+                    }
+                    if (type === 'npc') {
+                        return json; // NPCの場合はオブジェクトごと返す
+                    }
+                } catch (e) {
+                    console.warn(`[WorldHandler] Failed to parse JSON for ${type}. Raw result:`, result);
+                    // フォールバック: 生のテキストを返す（ただし説明文の場合はそのまま、NPCの場合はエラー扱いになる可能性あり）
+                    return result;
+                }
+            }
 
             return result;
         } catch (error: any) {
