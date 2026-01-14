@@ -5,8 +5,14 @@
 import type { IWorldRepository, IEntityRepository } from '../../../domain/repositories';
 import { World, GameEntity } from '../../../domain/entities';
 import type { EntityType, ParameterMap } from '../../../domain/entities';
-import { ParameterValue } from '../../../domain/value-objects';
+import { ParameterValue, Visibility } from '../../../domain/value-objects';
 import { WorldDto, CreateWorldRequestDto } from '../../dtos';
+
+import { v4 as uuidv4 } from 'uuid';
+import path from 'path';
+
+import { LlmGateway } from '../../../infrastructure/gateways/LlmGateway';
+import { PromptTemplate } from '../../../infrastructure/prompts';
 
 /**
  * ワールド作成ユースケース
@@ -14,7 +20,9 @@ import { WorldDto, CreateWorldRequestDto } from '../../dtos';
 export class CreateWorldUseCase {
     constructor(
         private readonly worldRepository: IWorldRepository,
-        private readonly entityRepository: IEntityRepository
+        private readonly entityRepository: IEntityRepository,
+        private readonly llmGateway: LlmGateway,
+        private readonly promptsPath: string
     ) { }
 
     /**
@@ -23,9 +31,11 @@ export class CreateWorldUseCase {
      * @returns 作成されたワールドDTO
      */
     async execute(request: CreateWorldRequestDto): Promise<WorldDto> {
+        const worldId = request.id || uuidv4();
+
         // ワールドエンティティを作成
         const world = World.create({
-            id: request.id,
+            id: worldId,
             name: request.name,
             prompt: request.prompt
         });
@@ -33,22 +43,117 @@ export class CreateWorldUseCase {
         // ワールドを保存
         const savedWorld = await this.worldRepository.save(world);
 
-        // エンティティを作成
-        for (const entityData of request.entities) {
-            const { persona, parameter, state } = this.splitEnvironment(entityData.environment);
+        let entitiesData = request.entities;
 
-            const entity = GameEntity.create({
-                id: entityData.id,
-                worldId: world.id,
-                type: entityData.type as EntityType,
-                name: entityData.name,
-                description: entityData.description,
-                persona,
-                parameter,
-                state
-            });
+        // エンティティが空の場合、自動生成を実行
+        if (!entitiesData || entitiesData.length === 0) {
+            console.log('[CreateWorldUseCase] No entities provided. Auto-generating NPC and Location...');
 
-            await this.entityRepository.save(entity);
+            let attempts = 0;
+            const maxAttempts = 3;
+            let success = false;
+
+            while (attempts < maxAttempts && !success) {
+                attempts++;
+                try {
+                    console.log(`[CreateWorldUseCase] Generation attempt ${attempts}/${maxAttempts}`);
+
+                    // プロンプト読み込み
+                    const templatePath = path.join(this.promptsPath, 'world_gen_npc.md');
+                    const template = new PromptTemplate(templatePath);
+
+                    // プロンプトレンダリング
+                    const promptText = template.render({
+                        context: request.name + "\n" + request.prompt,
+                        flavor: "Fantasy RPG" // TODO: 受け取るかランダムにするか。一旦固定かrequestから取れるなら取る。
+                    });
+
+                    // LLM呼び出し
+                    const generatedData = await this.llmGateway.generateJson(promptText, "Generate NPC and Location in JSON format.", {
+                        model: 'main', // クリエイティブな生成なのでMain推奨
+                        metadata: {
+                            apiType: 'world_gen_npc',
+                            worldId: world.id
+                        }
+                    });
+
+                    // データ整形
+                    if (generatedData && generatedData.npc && generatedData.npc.environment) {
+                        const locationName = generatedData.location?.name || 'Unknown Location';
+                        const locationId = uuidv4(); // Generate proper Location ID
+
+                        // NPCデータ構築
+                        const npcId = uuidv4();
+                        const npcEnv = generatedData.npc.environment;
+
+                        // location情報をNPCのstateに追加
+                        npcEnv['location'] = { val: locationName, category: 'state', vis: 'vis_public' };
+                        npcEnv['locationId'] = { val: locationId, category: 'state', vis: 'vis_private' };
+
+                        // プレイヤーデータ構築
+                        const playerId = uuidv4();
+                        const playerEnv: any = {
+                            name: { val: 'あなた', category: 'basic', vis: 'vis_public' },
+                            location: { val: locationName, category: 'state', vis: 'vis_public' },
+                            locationId: { val: locationId, category: 'state', vis: 'vis_private' },
+                            // 最低限のステータス
+                            currentHp: { val: 100, category: 'state', vis: 'vis_public' },
+                            maxHp: { val: 100, category: 'parameter', vis: 'vis_private' }
+                        };
+
+                        // リクエスト配列を構築
+                        entitiesData = [
+                            {
+                                id: npcId,
+                                type: 'ENTITY_NPC',
+                                name: npcEnv.name?.val || 'NPC',
+                                description: npcEnv.appearance?.val || '',
+                                environment: npcEnv
+                            },
+                            {
+                                id: playerId,
+                                type: 'ENTITY_PLAYER',
+                                name: 'あなた',
+                                description: 'プレイヤー',
+                                environment: playerEnv
+                            }
+                        ];
+                        success = true;
+                    } else {
+                        throw new Error("Invalid generated data structure");
+                    }
+
+                } catch (e) {
+                    console.warn(`[CreateWorldUseCase] Auto-generation attempt ${attempts} failed:`, e);
+                    if (attempts >= maxAttempts) {
+                        console.error('[CreateWorldUseCase] All auto-generation attempts failed.');
+                        // ワールド作成自体を失敗させる（ユーザーに通知）
+                        throw new Error("Failed to generate world characters after multiple attempts. Please try again.");
+                    }
+                    // 少し待機してからリトライ
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                }
+            }
+        }
+
+        // エンティティを作成・保存
+        if (entitiesData) {
+            for (const entityData of entitiesData) {
+                const { persona, parameter, state } = this.splitEnvironment(entityData.environment);
+
+                const entity = GameEntity.create({
+                    id: entityData.id || uuidv4(), // IDがなければ生成
+                    worldId: world.id,
+                    type: entityData.type as EntityType,
+                    name: entityData.name,
+                    description: entityData.description,
+                    persona,
+                    parameter,
+                    state
+                });
+
+                await this.entityRepository.save(entity);
+            }
         }
 
         return this.toDto(savedWorld);

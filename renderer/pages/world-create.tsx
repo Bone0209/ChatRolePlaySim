@@ -64,7 +64,7 @@ export default function WorldCreate() {
                 const newWorld = await window.electron.worldCreate({
                     name: worldName,
                     prompt: prompt,
-                    npcList: []
+                    entities: []
                 });
                 router.push(`/chat?worldId=${newWorld.id}`);
             } else {

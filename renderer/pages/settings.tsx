@@ -58,6 +58,13 @@ export default function SettingsPage() {
     const loadData = async () => {
         try {
             const data = await (window as any).electron.profile.list();
+            if (data.profiles.length === 0) {
+                // Auto-create default profile if none exists
+                await (window as any).electron.profile.create("default");
+                loadData();
+                return;
+            }
+
             setProfiles(data.profiles);
             /* Do not auto-switch active ID if it becomes invalid, logic below handles null case */
             if (!activeProfileId && data.profiles.length > 0) {
@@ -67,6 +74,7 @@ export default function SettingsPage() {
                 // If active profile was deleted
                 setActiveProfileId(data.profiles.length > 0 ? data.profiles[0].id : null);
             } else if (data.profiles.length === 0) {
+                // Should be unreachable due to auto-creation above, but safe to keep
                 setActiveProfileId(null);
             }
         } catch (e) {
@@ -137,7 +145,14 @@ export default function SettingsPage() {
 
     // Global Settings
     const handleGlobalStatusChange = (key: string, value: string) => {
-        setGlobalSettings(prev => prev.map(s => s.keyName === key ? { ...s, keyValue: value } : s));
+        setGlobalSettings(prev => {
+            const exists = prev.find(s => s.keyName === key);
+            if (exists) {
+                return prev.map(s => s.keyName === key ? { ...s, keyValue: value } : s);
+            } else {
+                return [...prev, { keyName: key, keyValue: value, valueType: 'string' }];
+            }
+        });
     };
 
     const handleGlobalSave = async (key: string, value: string, type: string) => {
@@ -168,7 +183,14 @@ export default function SettingsPage() {
 
     // Profile Settings
     const handleProfileSettingChange = (keyName: string, newValue: string) => {
-        setProfileSettings(prev => prev.map(s => s.keyName === keyName ? { ...s, keyValue: newValue } : s));
+        setProfileSettings(prev => {
+            const exists = prev.find(s => s.keyName === keyName);
+            if (exists) {
+                return prev.map(s => s.keyName === keyName ? { ...s, keyValue: newValue } : s);
+            } else {
+                return [...prev, { keyName, keyValue: newValue, valueType: 'string' }];
+            }
+        });
     };
 
     const handleProfileSettingSave = async (keyName: string, keyValue: string) => {
