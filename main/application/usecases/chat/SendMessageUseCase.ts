@@ -8,6 +8,8 @@ import { ChatMessage } from "../../../domain/entities/ChatMessage";
 import { PrismaUserProfileRepository } from "../../../infrastructure/repositories/PrismaUserProfileRepository";
 import { MissingConfigurationError } from "../../errors/MissingConfigurationError";
 
+import { GlobalConstantRepository } from "../../../domain/repositories/IGlobalConstantRepository";
+
 export class SendMessageUseCase {
     constructor(
         private chatRepo: IChatRepository,
@@ -15,7 +17,8 @@ export class SendMessageUseCase {
         private worldRepo: IWorldRepository,
         private llmGateway: LlmGateway,
         private updateAffectionUseCase: UpdateAffectionUseCase,
-        private userProfileRepo: PrismaUserProfileRepository
+        private userProfileRepo: PrismaUserProfileRepository,
+        private globalConstantRepo: GlobalConstantRepository
     ) { }
 
     async execute(input: {
@@ -124,7 +127,7 @@ export class SendMessageUseCase {
         // Fetch entities for context
         const entities = await this.entityRepo.findByWorldId(input.worldId);
 
-        const responseText = await this.llmGateway.generateRolePlayResponse({
+        const responseMessages = await this.llmGateway.generateRolePlayResponse({
             world,
             playerMessage: input.message,
             targetNpc: npc,
@@ -135,19 +138,52 @@ export class SendMessageUseCase {
             playerProfile
         });
 
-        // 6. Save Assistant Response
-        const assistMsg = ChatMessage.create({
-            worldId: input.worldId,
-            type: 'CHAT_NPC',
-            message: responseText,
-            entityId: npc.id
-        });
-        await this.chatRepo.save(assistMsg);
+        // 6. Save Assistant Responses
+        let combinedResponseText = '';
+
+        // Fetch constant parameters for comparison
+        const infoType = await this.globalConstantRepo.getValue('CHAT_RES_INFO');
+        const eventType = await this.globalConstantRepo.getValue('CHAT_RES_EVENT');
+
+        // Buffer for merging consecutive messages
+        const messageBuffer: { type: 'CHAT_NPC' | 'CHAT_SYSTEM'; body: string }[] = [];
+
+        for (const msg of responseMessages) {
+            // Combine for return value (frontend display / affection analysis)
+            if (combinedResponseText) combinedResponseText += '\n';
+            combinedResponseText += msg.body;
+
+            // Determine appropriate ChatType based on response type
+            let chatType: 'CHAT_NPC' | 'CHAT_SYSTEM' = 'CHAT_NPC';
+            if (msg.type === (infoType || 'I') || msg.type === (eventType || 'E')) {
+                chatType = 'CHAT_SYSTEM';
+            }
+
+            // Merge with previous if same type
+            if (messageBuffer.length > 0 && messageBuffer[messageBuffer.length - 1].type === chatType) {
+                messageBuffer[messageBuffer.length - 1].body += '\n' + msg.body;
+            } else {
+                messageBuffer.push({ type: chatType, body: msg.body });
+            }
+        }
+
+        // Save buffered messages
+        for (const item of messageBuffer) {
+            const assistMsg = ChatMessage.create({
+                worldId: input.worldId,
+                type: item.type,
+                message: item.body,
+                entityId: item.type === 'CHAT_NPC' ? npc.id : undefined
+            });
+            await this.chatRepo.save(assistMsg);
+        }
 
         // 7. Update Affection
         const affectionResult = await this.llmGateway.analyzeAffection(
             input.message,
-            responseText,
+            // Use combined text for affection analysis for now
+            // Or ideally, analyze based on the main chat part?
+            combinedResponseText,
             npc.name,
             npc.getAffection()
         );
@@ -160,6 +196,6 @@ export class SendMessageUseCase {
             });
         }
 
-        return responseText;
+        return combinedResponseText;
     }
 }

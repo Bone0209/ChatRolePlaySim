@@ -27,6 +27,7 @@ declare global {
             openStatus: () => void;
             chat: (message: string, history: Array<{ role: string, content: string }>, targetId?: string, worldId?: string) => Promise<string>;
             worldList: () => Promise<WorldData[]>;
+            worldGet: (id: string) => Promise<WorldData>;
             worldCreate: (data: { name: string, prompt: string, entities?: any[] }) => Promise<WorldData>;
             worldGenerate: (data: { type: 'title' | 'description' | 'npc', context: string }) => Promise<string>;
             game: {

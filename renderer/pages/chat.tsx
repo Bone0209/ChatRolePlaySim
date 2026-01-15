@@ -6,6 +6,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Send, ArrowLeft, Activity, MessageSquare, Sword, Eye, ChevronDown, ChevronRight, Box, Settings, Map, Scroll, Zap, X, Shield, FlaskConical, Gem, GripVertical, ChevronUp } from 'lucide-react';
 import { useRouter } from 'next/router';
 import MarkdownRenderer from '@/components/MarkdownRenderer';
+import ParsedMessage from '@/components/ParsedMessage';
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent } from '@dnd-kit/core';
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -35,7 +36,7 @@ interface Message {
     id: number;
     text: string;
     emotion?: string;
-    sender: 'user' | 'bot';
+    sender: 'user' | 'bot' | 'system';
     senderName: string;
     entityId?: string;
 }
@@ -472,6 +473,7 @@ export default function Home() {
 
     // Player name from profile
     const [playerName, setPlayerName] = useState<string>('Player');
+    const [worldName, setWorldName] = useState<string>('AIRolePlaySim');
 
     const handleCharacterClick = async (entityId?: string, name?: string) => {
         if (!entityId && !name) return;
@@ -524,19 +526,36 @@ export default function Home() {
                     setPlayerName(loadedPlayerName);
                 }
 
+                interface Message {
+                    id: number;
+                    text: string;
+                    emotion?: string;
+                    sender: 'user' | 'bot' | 'system';
+                    senderName: string;
+                    entityId?: string;
+                }
+
+                // ...
+
                 // 1. Load History
                 const history = await window.electron?.game.getChatHistory(worldId as string);
                 if (isMounted && history && history.length > 0) {
                     // Map DB history to UI Message type
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    const mappedMessages = history.map((h: any, index: number) => ({
-                        id: index, // Use simple index for history, or hash
-                        text: h.content,
-                        sender: (h.role === 'user' ? 'user' : 'bot') as 'user' | 'bot',
-                        senderName: h.speakerName || (h.role === 'user' ? loadedPlayerName : 'System'),
-                        entityId: h.entityId,
-                        emotion: ''
-                    }));
+                    const mappedMessages = history.map((h: any, index: number) => {
+                        let sender: 'user' | 'bot' | 'system' = 'bot';
+                        if (h.type === 'CHAT_SYSTEM') sender = 'system';
+                        else if (h.role === 'user') sender = 'user';
+
+                        return {
+                            id: index, // Use simple index for history, or hash
+                            text: h.content,
+                            sender: sender,
+                            senderName: h.speakerName || (h.role === 'user' ? loadedPlayerName : 'System'),
+                            entityId: h.entityId,
+                            emotion: ''
+                        };
+                    });
                     setMessages(mappedMessages);
                 }
 
@@ -562,6 +581,20 @@ export default function Home() {
         };
 
         loadInitialState();
+
+        const loadWorldInfo = async () => {
+            try {
+                if (window.electron?.worldGet) {
+                    const world = await window.electron.worldGet(worldId as string);
+                    if (isMounted && world) {
+                        setWorldName(world.name);
+                    }
+                }
+            } catch (e) {
+                console.error("Failed to load world info:", e);
+            }
+        };
+        loadWorldInfo();
 
         return () => { isMounted = false; };
     }, [worldId]);
@@ -644,7 +677,7 @@ export default function Home() {
                 const result = await window.electron.chat(text, apiHistory, selectedTarget?.id, worldId as string);
 
                 // Handle new response format
-                if (result && typeof result === 'object' && 'success' in result) {
+                if (result && typeof result === 'object' && 'success' in (result as any)) {
                     const res = result as { success: boolean; data?: string; error?: string; message?: string };
                     if (!res.success) {
                         // Check for missing configuration error
@@ -671,14 +704,43 @@ export default function Home() {
                 replyText = `(Mock) 「${text || '...'}」ですね。API接続がありません。`;
             }
 
-            const botResponse: Message = {
-                id: Date.now() + 1,
-                text: replyText,
-                emotion: '', // API currently returns simple string
-                sender: 'bot',
-                senderName: replyName,
-            };
-            setMessages((prev) => [...prev, botResponse]);
+            // Legacy or optimistic update for immediate feedback (though we will reload history)
+            // If the API returns a type, we could use it. For now, assume bot.
+            // But actually, we should reload history to get the accurate system messages.
+
+            // Re-fetch chat history immediately to get correct types (System vs Bot)
+            // Wait a moment for DB persistence ensuring
+            if (window.electron?.game?.getChatHistory) {
+                // Fetch latest history
+                const latestHistory = await window.electron.game.getChatHistory(worldId as string);
+                if (latestHistory) {
+                    // Re-map (reuse logic from loadInitialState - ideally extract this function)
+                    const mappedMessages = latestHistory.map((h: any, index: number) => {
+                        let sender: 'user' | 'bot' | 'system' = 'bot';
+                        if (h.type === 'CHAT_SYSTEM') sender = 'system';
+                        else if (h.role === 'user') sender = 'user';
+
+                        return {
+                            id: index,
+                            text: h.content,
+                            sender: sender,
+                            senderName: h.speakerName || (h.role === 'user' ? playerName : 'System'),
+                            entityId: h.entityId,
+                            emotion: ''
+                        };
+                    });
+                    setMessages(mappedMessages);
+                }
+            } else {
+                // Fallback if no history fetch available (mock mode)
+                const botResponse: Message = {
+                    id: Date.now() + 1,
+                    text: replyText,
+                    sender: 'bot',
+                    senderName: replyName,
+                };
+                setMessages((prev) => [...prev, botResponse]);
+            }
 
             // --- Game Step Processing ---
             // Moved to Backend Side (ChatParser)
@@ -719,58 +781,70 @@ export default function Home() {
                 {/* Chat Panel - Fixed Width */}
                 <div className="w-[480px] shrink-0 flex flex-col h-full bg-background border-r border-border/20 relative">
                     {/* Header */}
-                    <div className="p-3 border-b border-border/40 flex items-center justify-between bg-background/80 backdrop-blur-md shrink-0">
+                    <div className="relative p-3 border-b border-border/40 flex items-center justify-center bg-background/80 backdrop-blur-md shrink-0">
                         <Button
                             variant="ghost"
                             size="icon"
-                            className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                            className="absolute left-3 h-8 w-8 text-muted-foreground hover:text-foreground"
                             onClick={() => router.push('/world-select')}
                             title="Back to World Select"
                         >
                             <ArrowLeft size={18} />
                         </Button>
-                        <span className="font-bold text-lg tracking-wide bg-gradient-to-r from-blue-400 to-purple-500 text-transparent bg-clip-text">
-                            AIRolePlaySim
+                        <span className="font-bold text-lg tracking-wide text-white">
+                            {worldName}
                         </span>
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 text-muted-foreground hover:text-foreground"
-                            onClick={() => console.log('Open Settings')}
-                            title="Settings"
-                        >
-                            <Settings size={18} />
-                        </Button>
                     </div>
 
                     {/* Chat Area */}
                     <div className="flex-1 p-4 overflow-y-auto min-h-0">
                         <div className="w-full space-y-4">
-                            {messages.map((msg) => (
-                                <div
-                                    key={msg.id}
-                                    className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}
-                                >
-                                    <div className={`flex flex-col ${msg.sender === 'user' ? 'items-end' : 'items-start'} max-w-[90%]`}>
-                                        <span
-                                            className={`text-xs mb-1 px-1 font-medium ${msg.sender === 'user' ? 'text-blue-400' : 'text-purple-400 cursor-pointer hover:underline'}`}
-                                            onClick={() => msg.sender !== 'user' && handleCharacterClick(msg.entityId, msg.senderName)}
-                                        >
-                                            {msg.senderName}
-                                        </span>
-                                        <Card className="border-none shadow-md overflow-hidden bg-zinc-800 text-zinc-100">
-                                            <CardContent className="p-3 flex flex-col gap-3">
-                                                {msg.emotion && (
-                                                    <div className="text-sm italic text-gray-400">
-                                                        {msg.emotion}
-                                                    </div>
-                                                )}
-                                                <MarkdownRenderer content={msg.text} />
-                                            </CardContent>
-                                        </Card>
+                            {messages.map((msg) => {
+                                if (msg.sender === 'system') {
+                                    return (
+                                        <div key={msg.id} className="flex justify-center my-4 opacity-80">
+                                            <div className="bg-black/40 border border-white/10 px-4 py-2 rounded-full text-xs text-zinc-400 max-w-[80%] text-center">
+                                                {msg.text}
+                                            </div>
+                                        </div>
+                                    );
+                                }
+
+                                return (
+                                    <div key={msg.id} className={`flex w-full mb-6 ${msg.sender === 'user' ? 'justify-end' : 'justify-start'} animate-in fade-in slide-in-from-bottom-2 duration-300`}>
+                                        <div className={`flex flex-col ${msg.sender === 'user' ? 'items-end' : 'items-start'} max-w-[85%]`}>
+
+                                            {/* Sender Name Badge (Outside Bubble) */}
+                                            {/* Sender Name Badge (Outside Bubble) */}
+                                            <div
+                                                onClick={msg.sender === 'bot' ? () => handleCharacterClick(msg.entityId, msg.senderName) : undefined}
+                                                className={`mb-2 px-3 py-1 rounded-lg border shadow-sm text-xs font-bold tracking-wide transition-all ${msg.sender === 'user'
+                                                    ? 'bg-blue-900/40 border-blue-500/30 text-blue-200'
+                                                    : 'bg-[#1e1b4b]/90 border-indigo-500/30 text-indigo-200 cursor-pointer hover:bg-[#2e2b5b] hover:border-indigo-400/50' // Indigo-950 hex for deep richness, with hover effect
+                                                    }`}>
+                                                {msg.senderName}
+                                            </div>
+
+                                            {/* Message Bubble */}
+                                            <div
+                                                className={`w-full px-5 py-4 rounded-3xl shadow-md backdrop-blur-sm border ${msg.sender === 'user'
+                                                    ? 'bg-blue-600/20 border-blue-500/30 text-blue-100 rounded-tr-sm'
+                                                    : 'bg-[#0f172a]/80 border-white/5 text-slate-200 rounded-tl-sm' // Slate-900 hex for blue-tinted dark
+                                                    }`}
+                                            >
+                                                <div className="text-sm leading-relaxed tracking-wide/0.5">
+                                                    {msg.sender === 'bot' ? (
+                                                        <ParsedMessage content={msg.text} />
+                                                    ) : (
+                                                        // User message
+                                                        <div className="whitespace-pre-wrap">{msg.text}</div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>
-                                </div>
-                            ))}
+                                );
+                            })}
                             <div ref={bottomRef} />
                         </div>
                     </div>

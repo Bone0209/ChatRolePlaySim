@@ -369,7 +369,7 @@ export class LlmGateway {
         actionAnalysis: any;
         config?: ModelConfig;
         playerProfile?: { name: string; gender: string; description: string };
-    }): Promise<string> {
+    }): Promise<{ type: string; order: number; body: string; }[]> {
         const { PromptTemplate } = await import('../prompts/PromptTemplate');
         const path = await import('path');
 
@@ -380,18 +380,59 @@ export class LlmGateway {
 
         // コンテキストの構築 (パラメータ等はDTOやEntityから抽出)
         const player = context.playerProfile || { name: 'Player', gender: 'Unknown', description: '' };
+
+        // Helper to get parameter with casing fallback
+        const getParam = (keys: string[]): string => {
+            for (const key of keys) {
+                const val = context.targetNpc.getParameterValue(key);
+                if (val) return val as string;
+            }
+            return '';
+        };
+
+        // Extract NPC Persona Data
+        const firstPerson = getParam(['firstPerson', 'FirstPerson']) || '私';
+        const ending = getParam(['ending', 'Ending']) || 'です';
+
+        // Use PromptTableBuilder for dynamic profile generation
+        const { PromptTableBuilder } = await import('../../lib/PromptTableBuilder');
+        const builder = new PromptTableBuilder(); // Title is handled in template, or we can remove it from template
+
+        // Add standard fields
+        builder.addRow('Name', context.targetNpc.name);
+        builder.addRow('Description', context.targetNpc.description);
+
+        // Add all persona parameters
+        const personaMap = (context.targetNpc as any)._persona; // Access internal map if possible, or use getter
+        if (personaMap) {
+            builder.addMap(personaMap);
+        } else {
+            // Fallback if direct access not available (should use public getter in real entity)
+            const params = context.targetNpc.getAllParameters();
+            Object.entries(params).forEach(([key, val]: [string, any]) => {
+                if (val.category === 'persona' || val.category === 'basic') {
+                    builder.addRow(key, val.val);
+                }
+            });
+        }
+
+        const targetProfile = builder.toString();
+
         const promptText = template.render({
             characterName: context.targetNpc.name,
             targetName: context.targetNpc.name,
+            targetFirstPerson: firstPerson,
+            targetEnding: ending,
+            targetProfile: targetProfile,
             // Player profile data
             playerName: player.name,
             playerGender: player.gender,
             playerDescription: player.description || 'N/A',
             playerCondition: 'Normal', // TODO: Get from game state
             // Other context
-            worldTime: '00:00', // TODO
-            location: 'Unknown', // TODO
-            weather: 'Clear', // TODO
+            worldTime: context.world.worldTime || '12:00',
+            location: context.targetNpc.getLocation() || 'Unknown Location',
+            weather: context.world.weather || 'Clear',
             userInput: context.playerMessage,
             actionAnalysis: JSON.stringify(context.actionAnalysis)
         });
@@ -406,13 +447,43 @@ export class LlmGateway {
         const response = await this.generateCompletion(messages, {
             model: 'main',
             configOverride: context.config,
+            responseFormat: 'json', // 明示的にJSONを指定
             metadata: {
                 apiType: 'chat',
                 worldId: context.world.id,
-                entityId: context.targetNpc.id // entityIdとして記録
+                entityId: context.targetNpc.id
             }
         });
-        return response.content;
+
+        // JSONパース処理
+        let content = response.content;
+        const jsonBlock = content.match(/```json?\s*([\s\S]*?)```/);
+        if (jsonBlock) {
+            content = jsonBlock[1].trim();
+        } else {
+            const firstBrace = content.indexOf('{');
+            const lastBrace = content.lastIndexOf('}');
+            if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+                content = content.substring(firstBrace, lastBrace + 1);
+            }
+        }
+
+        try {
+            const parsed = JSON.parse(content);
+            // chats配列を返す（呼び出し元で処理）
+            return parsed.chats || [];
+        } catch (e) {
+            console.error('[LlmGateway] Failed to parse JSON response:', content);
+            // フォールバック: パース失敗時は生のテキストをbodyとする単一メッセージとして返す
+            // Strip any <emo> tags from the raw content as they are deprecated
+            let fallbackBody = response.content;
+            fallbackBody = fallbackBody.replace(/<emo>[\s\S]*?<\/emo>\n?/gi, '');
+            return [{
+                type: 'C',
+                order: 1,
+                body: fallbackBody.trim()
+            }];
+        }
     }
 }
 
