@@ -4,7 +4,8 @@ import {
     PrismaEntityRepository,
     PrismaChatRepository,
     PrismaUserProfileRepository,
-    PrismaApiLogRepository
+    PrismaApiLogRepository,
+    PrismaGlobalConstantRepository
 } from './infrastructure/repositories';
 
 // Gateways
@@ -139,6 +140,7 @@ function setupHandlers() {
     const chatRepo = new PrismaChatRepository();
     const userProfileRepo = new PrismaUserProfileRepository();
     const apiLogRepo = new PrismaApiLogRepository();
+    const globalConstantRepo = new PrismaGlobalConstantRepository();
 
     // 2. Gateways
     const llmGateway = getLlmGateway(apiLogRepo);
@@ -182,7 +184,8 @@ function setupHandlers() {
         worldRepo,
         llmGateway,
         updateAffectionUC,
-        userProfileRepo
+        userProfileRepo,
+        globalConstantRepo
     );
 
     // 4. Register Handlers

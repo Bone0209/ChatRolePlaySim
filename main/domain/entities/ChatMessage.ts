@@ -129,7 +129,7 @@ export class ChatMessage {
         switch (this._type) {
             case 'CHAT_PLAYER': return 'user';
             case 'CHAT_NPC': return 'assistant';
-            default: return 'system';
+            default: return 'assistant';
         }
     }
 }

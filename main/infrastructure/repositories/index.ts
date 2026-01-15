@@ -7,3 +7,4 @@ export { PrismaEntityRepository } from './PrismaEntityRepository';
 export { PrismaChatRepository } from './PrismaChatRepository';
 export { PrismaUserProfileRepository } from './PrismaUserProfileRepository';
 export { PrismaApiLogRepository } from './PrismaApiLogRepository';
+export { PrismaGlobalConstantRepository } from './PrismaGlobalConstantRepository';

@@ -26,6 +26,17 @@ async function main() {
         { category: 'CALENDAR', keyName: 'WEEKS_PER_MONTH', keyValue: '4' },
         { category: 'CALENDAR', keyName: 'DAYS_PER_WEEK', keyValue: '7' },
         { category: 'CALENDAR', keyName: 'TURNS_PER_DAY', keyValue: '30' },
+
+        // Chat Response Types
+        { category: 'CHAT_RESPONSE_TYPE', keyName: 'CHAT_RES_CHAT', keyValue: 'C' },
+        { category: 'CHAT_RESPONSE_TYPE', keyName: 'CHAT_RES_INFO', keyValue: 'I' },
+        { category: 'CHAT_RESPONSE_TYPE', keyName: 'CHAT_RES_EVENT', keyValue: 'E' },
+
+        // Chat Tags
+        { category: 'CHAT_TAG', keyName: 'CHAT_TAG_EMO', keyValue: 'emo' },
+        { category: 'CHAT_TAG', keyName: 'CHAT_TAG_ACT', keyValue: 'act' },
+        { category: 'CHAT_TAG', keyName: 'CHAT_TAG_MSG', keyValue: 'msg' },
+        { category: 'CHAT_TAG', keyName: 'CHAT_TAG_SCENE', keyValue: 'scene' },
     ]
 
     console.log('Seeding global_constants to dev.db...')
