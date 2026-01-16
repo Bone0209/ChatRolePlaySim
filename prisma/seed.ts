@@ -4,7 +4,7 @@ import { createClient } from '@libsql/client'
 import path from 'path'
 
 // libsql uses file: URL format for local SQLite files
-const dbPath = path.join(process.cwd(), 'dev.db')
+const dbPath = path.join(process.cwd(), 'prisma', 'dev.db')
 const adapter = new PrismaLibSql({ url: `file:${dbPath}` })
 
 const prisma = new PrismaClient({ adapter })
@@ -33,10 +33,10 @@ async function main() {
         { category: 'CHAT_RESPONSE_TYPE', keyName: 'CHAT_RES_EVENT', keyValue: 'E' },
 
         // Chat Tags
-        { category: 'CHAT_TAG', keyName: 'CHAT_TAG_EMO', keyValue: 'emo' },
-        { category: 'CHAT_TAG', keyName: 'CHAT_TAG_ACT', keyValue: 'act' },
-        { category: 'CHAT_TAG', keyName: 'CHAT_TAG_MSG', keyValue: 'msg' },
-        { category: 'CHAT_TAG', keyName: 'CHAT_TAG_SCENE', keyValue: 'scene' },
+        { category: 'CHAT_TAG', keyName: 'CHAT_TAG_NARRATIVE', keyValue: 'narrative' },
+        { category: 'CHAT_TAG', keyName: 'CHAT_TAG_SPEECH', keyValue: 'speech' },
+        { category: 'CHAT_TAG', keyName: 'CHAT_TAG_EVENT', keyValue: 'event' },
+        { category: 'CHAT_TAG', keyName: 'CHAT_TAG_LOG', keyValue: 'log' },
     ]
 
     console.log('Seeding global_constants to dev.db...')
