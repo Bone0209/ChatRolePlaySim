@@ -58,6 +58,20 @@ export function registerGameHandler(
         return detail;
     });
 
+    // ロケーション内のエンティティ一覧取得
+    ipcMain.handle('game:get-location-entities', async (event, { worldId, locationId }: { worldId: string, locationId: string }) => {
+        const { GetLocationEntitiesUseCase } = await import('../../application/usecases/entity/GetLocationEntitiesUseCase');
+        const useCase = new GetLocationEntitiesUseCase(entityRepository);
+        return useCase.execute({ worldId, locationId });
+    });
+
+    // エンティティ作成
+    ipcMain.handle('entity:create', async (event, data: any) => {
+        const { CreateEntityUseCase } = await import('../../application/usecases/entity/CreateEntityUseCase');
+        const useCase = new CreateEntityUseCase(entityRepository);
+        return useCase.execute(data);
+    });
+
     // チャット履歴取得は ChatHandler に移動済み
     // ipcMain.handle('game:get-chat-history', ...) は削除
 }

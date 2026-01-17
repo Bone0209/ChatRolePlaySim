@@ -69,12 +69,20 @@ export const getAppConfig = (): AppConfig => {
         model: getEnv('SUB_MODEL', 'local-model'),
     };
 
+    let dbUrl = getEnv('DATABASE_URL', 'file:./prisma/dev.db');
+    if (dbUrl.startsWith('file:./')) {
+        // Resolve relative path to absolute path to avoid cwd issues in Electron
+        const relativePath = dbUrl.substring('file:'.length);
+        const absolutePath = path.join(process.cwd(), relativePath);
+        dbUrl = `file:${absolutePath}`;
+    }
+
     return {
         mainModel,
         subModel,
         temperature: parseFloat(getEnv('LLM_TEMPERATURE', '0.7')),
         database: {
-            url: getEnv('DATABASE_URL', 'file:./prisma/dev.db')
+            url: dbUrl
         }
     };
 };

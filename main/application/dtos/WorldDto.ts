@@ -12,17 +12,19 @@ export interface WorldDto {
 /**
  * ワールド作成リクエストDTO
  */
+
 export interface CreateWorldRequestDto {
     id: string;
     name: string;
     prompt: string;
-    entities: CreateEntityRequestDto[];
+    entities: WorldEntityConfig[];
 }
 
 /**
- * エンティティ作成リクエストDTO
+ * ワールド作成時の初期エンティティ設定
  */
-export interface CreateEntityRequestDto {
+export interface WorldEntityConfig {
+
     id: string;
     type: 'ENTITY_PLAYER' | 'ENTITY_NPC';
     name: string;

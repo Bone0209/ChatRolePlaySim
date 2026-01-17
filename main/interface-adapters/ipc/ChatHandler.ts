@@ -71,7 +71,7 @@ export function registerChatHandler(
     });
 
     // チャット履歴取得
-    ipc.handle('game:get-chat-history', async (event, worldId: string) => {
+    ipc.handle('chat:get-history', async (event, worldId: string) => {
         if (!worldId) return [];
 
         const messages = await chatRepository.findByWorldId(worldId);

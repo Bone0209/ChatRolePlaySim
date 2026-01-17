@@ -45,7 +45,13 @@ export interface LlmResponse {
  * OpenAI互換APIを使用したLLMアクセスを提供
  */
 export class LlmGateway {
-    constructor(private apiLogRepository?: IApiLogRepository) { }
+    constructor(private apiLogRepository?: IApiLogRepository) {
+        if (!apiLogRepository) {
+            console.warn('[LlmGateway] Initialized WITHOUT ApiLogRepository - Logging disabled');
+        } else {
+            console.log('[LlmGateway] Initialized with ApiLogRepository');
+        }
+    }
 
 
     /**
@@ -221,10 +227,17 @@ export class LlmGateway {
      * @param options オプション
      * @returns 非同期イテレータ (各チャンクの文字列)
      */
+    /**
+     * チャット補完をストリーミングで生成
+     * @param messages メッセージ履歴
+     * @param options オプション
+     * @returns 非同期イテレータ (各チャンクの文字列)
+     */
     async *generateStream(
         messages: LlmMessage[],
         options: LlmRequestOptions = {}
     ): AsyncGenerator<string> {
+        const startTime = Date.now();
         const config = getAppConfig();
         let modelConfig = options.model === 'sub' ? config.subModel : config.mainModel;
 
@@ -244,91 +257,128 @@ export class LlmGateway {
 
         console.log(`[LlmGateway] Calling (Stream) ${modelConfig.model} at ${modelConfig.baseUrl}`);
 
-        const response = await this.fetchWithTimeout(
-            `${modelConfig.baseUrl}/chat/completions`,
-            {
-                method: 'POST',
-                headers: this.buildHeaders(modelConfig),
-                body: JSON.stringify(payload)
-            },
-            timeoutMs
-        );
+        let fullResponseText = '';
+        let statusCode = 0;
+        let errorMessage: string | undefined;
 
-        if (!response.ok) {
-            const errorBody = await response.text();
-            throw new Error(`LLM API Error (${response.status}): ${errorBody.substring(0, 200)}`);
-        }
+        try {
+            const response = await this.fetchWithTimeout(
+                `${modelConfig.baseUrl}/chat/completions`,
+                {
+                    method: 'POST',
+                    headers: this.buildHeaders(modelConfig),
+                    body: JSON.stringify(payload)
+                },
+                timeoutMs
+            );
 
-        if (!response.body) {
-            throw new Error('Response body is null');
-        }
+            statusCode = response.status;
 
-        // Node.js ReadableStream handling
-        const reader = (response.body as any).getReader ? (response.body as any).getReader() : null;
+            if (!response.ok) {
+                const errorBody = await response.text();
+                errorMessage = `LLM API Error (${response.status}): ${errorBody.substring(0, 200)}`;
+                throw new Error(errorMessage);
+            }
 
-        // Handling for Node.js environment (node-fetch or native fetch with Node streams)
-        // If Response.body is a Node.js stream, we iterate it.
-        // If it's a web standard ReadableStream (e.g. Electron renderer or newer Node), we read via reader.
+            if (!response.body) {
+                throw new Error('Response body is null');
+            }
 
-        const decoder = new TextDecoder('utf-8');
-        let buffer = '';
+            // Node.js ReadableStream handling
+            const reader = (response.body as any).getReader ? (response.body as any).getReader() : null;
 
-        if (reader) {
-            // Web Standard ReadableStream
+            const decoder = new TextDecoder('utf-8');
+            let buffer = '';
+
             try {
-                while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) break;
+                if (reader) {
+                    while (true) {
+                        const { done, value } = await reader.read();
+                        if (done) break;
 
-                    const chunk = decoder.decode(value, { stream: true });
-                    buffer += chunk;
+                        const chunk = decoder.decode(value, { stream: true });
+                        buffer += chunk;
 
-                    const lines = buffer.split('\n');
-                    buffer = lines.pop() || ''; // Keep the incomplete line in buffer
+                        const lines = buffer.split('\n');
+                        buffer = lines.pop() || '';
 
-                    for (const line of lines) {
-                        const trimmedLine = line.trim();
-                        if (!trimmedLine || trimmedLine === 'data: [DONE]') continue;
-                        if (trimmedLine.startsWith('data: ')) {
-                            const dataStr = trimmedLine.substring(6);
-                            try {
-                                const data = JSON.parse(dataStr);
-                                const content = data.choices?.[0]?.delta?.content || '';
-                                if (content) yield content;
-                            } catch (e) {
-                                // Ignore parse errors for partial lines
+                        for (const line of lines) {
+                            const trimmedLine = line.trim();
+                            if (!trimmedLine || trimmedLine === 'data: [DONE]') continue;
+                            if (trimmedLine.startsWith('data: ')) {
+                                const dataStr = trimmedLine.substring(6);
+                                try {
+                                    const data = JSON.parse(dataStr);
+                                    const content = data.choices?.[0]?.delta?.content || '';
+                                    if (content) {
+                                        fullResponseText += content;
+                                        yield content;
+                                    }
+                                } catch (e) { }
+                            }
+                        }
+                    }
+                } else {
+                    // @ts-ignore
+                    for await (const chunk of response.body) {
+                        const text = decoder.decode(chunk as BufferSource, { stream: true });
+                        buffer += text;
+
+                        const lines = buffer.split('\n');
+                        buffer = lines.pop() || '';
+
+                        for (const line of lines) {
+                            const trimmedLine = line.trim();
+                            if (!trimmedLine || trimmedLine === 'data: [DONE]') continue;
+                            if (trimmedLine.startsWith('data: ')) {
+                                const dataStr = trimmedLine.substring(6);
+                                try {
+                                    const data = JSON.parse(dataStr);
+                                    const content = data.choices?.[0]?.delta?.content || '';
+                                    if (content) {
+                                        fullResponseText += content;
+                                        yield content;
+                                    }
+                                } catch (e) { }
                             }
                         }
                     }
                 }
             } finally {
-                reader.releaseLock();
-            }
-        } else {
-            // For Node.js internal fetch (undici) or similar where body is async iterable
-            // @ts-ignore
-            for await (const chunk of response.body) {
-                const text = decoder.decode(chunk as BufferSource, { stream: true });
-                buffer += text;
+                if (reader) reader.releaseLock();
 
-                const lines = buffer.split('\n');
-                buffer = lines.pop() || '';
-
-                for (const line of lines) {
-                    const trimmedLine = line.trim();
-                    if (!trimmedLine || trimmedLine === 'data: [DONE]') continue;
-                    if (trimmedLine.startsWith('data: ')) {
-                        const dataStr = trimmedLine.substring(6);
-                        try {
-                            const data = JSON.parse(dataStr);
-                            const content = data.choices?.[0]?.delta?.content || '';
-                            if (content) yield content;
-                        } catch (e) {
-                            // Ignore
-                        }
-                    }
+                // Stream Complete - Log Success
+                if (this.apiLogRepository) {
+                    this.apiLogRepository.create({
+                        apiType: options.metadata?.apiType || 'chat_stream',
+                        modelName: modelConfig.model,
+                        request: JSON.stringify(payload),
+                        response: fullResponseText,
+                        statusCode: statusCode,
+                        executionTimeMs: Date.now() - startTime,
+                        worldId: options.metadata?.worldId,
+                        entityId: options.metadata?.entityId
+                    }).catch(err => console.error('[LlmGateway] Failed to log API call (Stream):', err));
                 }
             }
+
+        } catch (error) {
+            errorMessage = (error as Error).message;
+            // Log Error
+            if (this.apiLogRepository) {
+                this.apiLogRepository.create({
+                    apiType: options.metadata?.apiType || 'chat_stream',
+                    modelName: modelConfig.model,
+                    request: JSON.stringify(payload),
+                    response: fullResponseText,
+                    statusCode: statusCode || 500,
+                    errorMessage: errorMessage,
+                    executionTimeMs: Date.now() - startTime,
+                    worldId: options.metadata?.worldId,
+                    entityId: options.metadata?.entityId
+                }).catch(err => console.error('[LlmGateway] Failed to log API error (Stream):', err));
+            }
+            throw error;
         }
     }
 
@@ -371,10 +421,6 @@ export class LlmGateway {
         return headers;
     }
 
-    /**
-     * Thinkingモデルのレスポンスをクリーンアップ
-     * <think>...</think> タグを除去
-     */
     /**
      * Thinkingモデルのレスポンスをクリーンアップ
      * <think>...</think> タグを除去
@@ -444,7 +490,8 @@ export class LlmGateway {
         userMessage: string,
         modelResponse: string,
         targetName: string,
-        currentAffection: number
+        currentAffection: number,
+        entityId?: string // Added ID parameter
     ): Promise<{ affection_delta: number; reason: string }> {
         const { PromptTemplate } = await import('../prompts/PromptTemplate');
         const path = await import('path');
@@ -465,7 +512,7 @@ export class LlmGateway {
                 model: 'sub',
                 metadata: {
                     apiType: 'affection_judge',
-                    entityId: targetName // 名前で代用、IDがあればベスト
+                    entityId: entityId // Use real ID if available. If undefined, it will be skipped by repo (if nullable) or logged as null.
                 }
             });
         } catch (e) {

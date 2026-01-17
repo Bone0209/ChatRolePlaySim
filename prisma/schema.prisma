@@ -1,9 +1,9 @@
-
 // This is your Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["views"]
 }
 
 datasource db {
@@ -18,9 +18,13 @@ model MWorld {
   prompt    String
   createdAt DateTime @default(now()) @map("created_at")
 
-  entities  MEntity[]
-  chats     TChat[]
-  apiLogs   TApiLog[]
+  entities MEntity[]
+  chats    TChat[]
+  apiLogs  TApiLog[]
+
+  // New Relations
+  locations      MLocation[]
+  attributeMetas MAttributeMeta[]
 
   @@map("m_worlds")
 }
@@ -44,23 +48,28 @@ model MEntity {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  world       MWorld   @relation(fields: [worldId], references: [id], onDelete: Cascade)
-  chats       TChat[]
+  world MWorld  @relation(fields: [worldId], references: [id], onDelete: Cascade)
+  chats TChat[]
 
   // Relations to Category Data
-  initialPersona   MEntityPersona?
-  currentPersona   TEntityPersona?
-  historyPersona   HEntityPersona[]
+  initialPersona MEntityPersona?
+  currentPersona TEntityPersona?
+  historyPersona HEntityPersona[]
 
   initialParameter MEntityParameter?
   currentParameter TEntityParameter?
   historyParameter HEntityParameter[]
 
-  initialState     MEntityState?
-  currentState     TEntityState?
-  historyState     HEntityState[]
+  initialState MEntityState?
+  currentState TEntityState?
+  historyState HEntityState[]
 
-  apiLogs          TApiLog[]
+  // Integrated Attributes Relations
+  initialAttributes MEntityAttribute[]
+  currentAttributes TEntityAttribute[]
+  historyAttributes HEntityAttribute[]
+
+  apiLogs TApiLog[]
 
   @@map("m_entities")
 }
@@ -70,10 +79,10 @@ model MEntity {
 model MEntityPersona {
   id        Int      @id @default(autoincrement())
   entityId  String   @unique @map("entity_id")
-  data      Json     // Initial KV data
+  data      Json // Initial KV data
   createdAt DateTime @default(now()) @map("created_at")
 
-  entity    MEntity  @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  entity MEntity @relation(fields: [entityId], references: [id], onDelete: Cascade)
 
   @@map("m_entity_personas")
 }
@@ -81,10 +90,10 @@ model MEntityPersona {
 model TEntityPersona {
   id        Int      @id @default(autoincrement())
   entityId  String   @unique @map("entity_id")
-  data      Json     // Current KV data
+  data      Json // Current KV data
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  entity    MEntity  @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  entity MEntity @relation(fields: [entityId], references: [id], onDelete: Cascade)
 
   @@map("t_entity_personas")
 }
@@ -92,10 +101,10 @@ model TEntityPersona {
 model HEntityPersona {
   id        Int      @id @default(autoincrement())
   entityId  String   @map("entity_id")
-  diff      Json     // Diff data { add, del, upd }
+  diff      Json // Diff data { add, del, upd }
   createdAt DateTime @default(now()) @map("created_at")
 
-  entity    MEntity  @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  entity MEntity @relation(fields: [entityId], references: [id], onDelete: Cascade)
 
   @@map("h_entity_personas")
 }
@@ -108,7 +117,7 @@ model MEntityParameter {
   data      Json
   createdAt DateTime @default(now()) @map("created_at")
 
-  entity    MEntity  @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  entity MEntity @relation(fields: [entityId], references: [id], onDelete: Cascade)
 
   @@map("m_entity_parameters")
 }
@@ -119,7 +128,7 @@ model TEntityParameter {
   data      Json
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  entity    MEntity  @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  entity MEntity @relation(fields: [entityId], references: [id], onDelete: Cascade)
 
   @@map("t_entity_parameters")
 }
@@ -130,7 +139,7 @@ model HEntityParameter {
   diff      Json
   createdAt DateTime @default(now()) @map("created_at")
 
-  entity    MEntity  @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  entity MEntity @relation(fields: [entityId], references: [id], onDelete: Cascade)
 
   @@map("h_entity_parameters")
 }
@@ -143,7 +152,7 @@ model MEntityState {
   data      Json
   createdAt DateTime @default(now()) @map("created_at")
 
-  entity    MEntity  @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  entity MEntity @relation(fields: [entityId], references: [id], onDelete: Cascade)
 
   @@map("m_entity_states")
 }
@@ -154,7 +163,7 @@ model TEntityState {
   data      Json
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  entity    MEntity  @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  entity MEntity @relation(fields: [entityId], references: [id], onDelete: Cascade)
 
   @@map("t_entity_states")
 }
@@ -165,7 +174,7 @@ model HEntityState {
   diff      Json
   createdAt DateTime @default(now()) @map("created_at")
 
-  entity    MEntity  @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  entity MEntity @relation(fields: [entityId], references: [id], onDelete: Cascade)
 
   @@map("h_entity_states")
 }
@@ -181,8 +190,8 @@ model TChat {
   entityId  String?  @map("entity_id")
   isVisible Boolean  @default(true) @map("is_visible")
 
-  world     MWorld   @relation(fields: [worldId], references: [id], onDelete: Cascade)
-  entity    MEntity? @relation(fields: [entityId], references: [id], onDelete: SetNull)
+  world  MWorld   @relation(fields: [worldId], references: [id], onDelete: Cascade)
+  entity MEntity? @relation(fields: [entityId], references: [id], onDelete: SetNull)
 
   @@map("t_chats")
 }
@@ -200,8 +209,8 @@ model TApiLog {
   entityId        String?  @map("entity_id")
   createdAt       DateTime @default(now()) @map("created_at")
 
-  world   MWorld?  @relation(fields: [worldId], references: [id], onDelete: SetNull)
-  entity  MEntity? @relation(fields: [entityId], references: [id], onDelete: SetNull)
+  world  MWorld?  @relation(fields: [worldId], references: [id], onDelete: SetNull)
+  entity MEntity? @relation(fields: [entityId], references: [id], onDelete: SetNull)
 
   @@index([apiType, createdAt])
   @@index([worldId, createdAt])
@@ -218,7 +227,7 @@ model TUserProfileList {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  profiles    TUserProfile[]
+  profiles TUserProfile[]
 
   @@map("t_user_profile_lists")
 }
@@ -241,4 +250,181 @@ model TUserSetting {
   valueType String @map("value_type") // 'string', 'number', 'boolean'
 
   @@map("t_user_settings")
+}
+
+// --- New Entity Attribute System (Key-Value) ---
+
+model MAttributeDefinition {
+  keyName     String  @id @map("key_name")
+  category    String // m_global_constants.attribute_category
+  valueType   String  @map("value_type") // m_global_constants.value_type
+  description String?
+
+  metas  MAttributeMeta[]
+  values TEntityAttribute[] // Relation for consistency check if needed
+
+  @@map("m_attribute_definitions")
+}
+
+model MAttributeMeta {
+  id      Int     @id @default(autoincrement())
+  worldId String? @map("world_id")
+  keyName String  @map("key_name")
+
+  displayName  String @map("display_name")
+  displayOrder Int    @default(0) @map("display_order")
+
+  rangeMin Float? @map("range_min")
+  rangeMax Float? @map("range_max")
+
+  visibility      String  @default("public")
+  visibilityParam String? @map("visibility_param")
+
+  metadata Json?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  definition MAttributeDefinition @relation(fields: [keyName], references: [keyName], onDelete: Cascade)
+  world      MWorld?              @relation(fields: [worldId], references: [id], onDelete: Cascade)
+
+  @@unique([worldId, keyName])
+  @@map("m_attribute_metas")
+}
+
+model MEntityAttribute {
+  id        Int      @id @default(autoincrement())
+  entityId  String   @map("entity_id")
+  keyName   String   @map("key_name")
+  keyValue  String   @map("key_value")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  entity MEntity @relation(fields: [entityId], references: [id], onDelete: Cascade)
+
+  @@unique([entityId, keyName])
+  @@map("m_entity_attributes")
+}
+
+model TEntityAttribute {
+  id        Int      @id @default(autoincrement())
+  entityId  String   @map("entity_id")
+  keyName   String   @map("key_name")
+  keyValue  String   @map("key_value")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  entity     MEntity              @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  definition MAttributeDefinition @relation(fields: [keyName], references: [keyName], onDelete: Cascade)
+
+  @@unique([entityId, keyName])
+  @@map("t_entity_attributes")
+}
+
+model HEntityAttribute {
+  id         Int      @id @default(autoincrement())
+  entityId   String   @map("entity_id")
+  keyName    String   @map("key_name")
+  oldValue   String?  @map("old_value")
+  newValue   String?  @map("new_value")
+  changeType String   @map("change_type") // 'update', 'create', 'delete'
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  entity MEntity @relation(fields: [entityId], references: [id], onDelete: Cascade)
+
+  @@map("h_entity_attributes")
+}
+
+// --- Location System ---
+
+model MLocation {
+  id        String   @id @default(uuid())
+  worldId   String   @map("world_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  world MWorld @relation(fields: [worldId], references: [id], onDelete: Cascade)
+
+  current TLocation?
+  history HLocation[]
+
+  attributes       TLocationAttribute[]
+  attributeHistory HLocationAttribute[]
+
+  @@map("m_locations")
+}
+
+model TLocation {
+  id          Int      @id @default(autoincrement())
+  locationId  String   @unique @map("location_id")
+  name        String
+  description String?
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  location MLocation @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  @@map("t_locations")
+}
+
+model HLocation {
+  id          Int      @id @default(autoincrement())
+  locationId  String   @map("location_id")
+  name        String
+  description String?
+  changeType  String   @map("change_type")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  location MLocation @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  @@map("h_locations")
+}
+
+model TLocationAttribute {
+  id         Int      @id @default(autoincrement())
+  locationId String   @map("location_id")
+  keyName    String   @map("key_name")
+  keyValue   String   @map("key_value")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  location MLocation @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  @@unique([locationId, keyName])
+  @@map("t_location_attributes")
+}
+
+model HLocationAttribute {
+  id         Int      @id @default(autoincrement())
+  locationId String   @map("location_id")
+  keyName    String   @map("key_name")
+  oldValue   String?  @map("old_value")
+  newValue   String?  @map("new_value")
+  changeType String   @map("change_type")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  location MLocation @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  @@map("h_location_attributes")
+}
+
+// --- Views ---
+
+view VEntityAttributeDetail {
+  entityId String @map("entity_id")
+  keyName  String @map("key_name")
+  keyValue String @map("key_value")
+  worldId  String @map("world_id")
+
+  // From Definition
+  category  String
+  valueType String @map("value_type")
+
+  // From Meta (Resolved)
+  displayName     String  @map("display_name")
+  displayOrder    Int     @map("display_order")
+  rangeMin        Float?  @map("range_min")
+  rangeMax        Float?  @map("range_max")
+  visibility      String
+  visibilityParam String? @map("visibility_param")
+
+  updatedAt DateTime @map("updated_at")
+
+  @@unique([entityId, keyName])
+  @@map("v_entity_attribute_details")
 }

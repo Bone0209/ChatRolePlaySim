@@ -5,3 +5,5 @@
 export * from './GameStateDto';
 export * from './WorldDto';
 export * from './ChatDto';
+export * from './LocationDto';
+export * from './EntityDto';

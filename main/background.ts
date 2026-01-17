@@ -2,6 +2,7 @@
 import {
     PrismaWorldRepository,
     PrismaEntityRepository,
+    PrismaLocationRepository,
     PrismaChatRepository,
     PrismaUserProfileRepository,
     PrismaApiLogRepository,
@@ -138,6 +139,7 @@ function setupHandlers() {
     // 1. Repositories
     const worldRepo = new PrismaWorldRepository();
     const entityRepo = new PrismaEntityRepository();
+    const locationRepo = new PrismaLocationRepository(); // New
     const chatRepo = new PrismaChatRepository();
     const userProfileRepo = new PrismaUserProfileRepository();
     const apiLogRepo = new PrismaApiLogRepository();
@@ -151,34 +153,15 @@ function setupHandlers() {
     // World UseCases are internal to WorldHandler
 
     // Game
-    // Note: ProcessActionUseCase needs legacy getters for now if not fully migrated to Repo logic?
-    // Actually ProcessActionUseCase in my plan took (entityRepo, getSteps, setSteps)
-    // I need to provide adapters for getSteps/setSteps or refactor ProcessActionUseCase to use Repository methods (e.g. key-value store)
-    // For now, let's implement simple adapters using direct prisma calls here or within the method.
-    // Wait, the new ProcessActionUseCase constructor signature (from file read previously):
-    /*
-     export class ProcessActionUseCase {
-        constructor(
-            private entityRepo: IEntityRepository,
-            private getSteps: (worldId: string) => Promise<number>,
-            private setSteps: (worldId: string, steps: number) => Promise<void>
-        ) {}
-     */
-    // I need to provide these functions.
     const getSteps = async (worldId: string): Promise<number> => {
-        // Temporary direct access or better, move this logic to WorldRepository?
-        // For simplicity in migration, I will use a local helper that uses the imported prisma client (if I import it) 
-        // OR better, create a separate StepRepository. 
-        // But since I don't have it, I'll allow a direct db call helper here.
-        // I need to import prisma for this.
-        return 0; // Placeholder, see logic below
+        // Temporary placeholder
+        return 0;
     };
     const setSteps = async (worldId: string, steps: number): Promise<void> => { };
 
     // UpdateAffectionUseCase
     const updateAffectionUC = new UpdateAffectionUseCase(entityRepo);
 
-    // Chat
     // Chat
     const sendPlayerMessageUC = new SendPlayerMessageUseCase(chatRepo, entityRepo, worldRepo);
 
@@ -194,14 +177,7 @@ function setupHandlers() {
 
     // 4. Register Handlers
     const promptsPath = path.join(process.cwd(), 'main', 'prompts');
-    registerWorldHandler(worldRepo, entityRepo, llmGateway, promptsPath);
-
-    // We need to properly implement steps logic for GameHandler.
-    // Since I can't easily inline it without prisma import, 
-    // I'll keep the legacy prisma import JUST for this helper for now, or instantiate a quick adapter.
-    // Let's defer GameHandler registration slightly or assume helper availability.
-
-    // Actually, let's register ChatHandler first as it's the target.
+    registerWorldHandler(worldRepo, locationRepo, entityRepo, llmGateway, promptsPath);
     registerGameHandler(entityRepo, getSteps, setSteps);
     registerChatHandler(sendPlayerMessageUC, generateNpcResponseUC, chatRepo, entityRepo, userProfileRepo);
     setupUserProfileHandlers();

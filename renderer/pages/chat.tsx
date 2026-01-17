@@ -443,6 +443,85 @@ const SidePanelStatus = ({ gameState }: { gameState: GameState }) => {
     );
 };
 
+const SidePanelLocation = ({ gameState, worldId }: { gameState: GameState, worldId: string }) => {
+    const [entities, setEntities] = useState<any[]>([]);
+    const [isLoading, setIsLoading] = useState(false);
+
+    useEffect(() => {
+        if (!gameState.locationId || !worldId) return;
+
+        const fetchEntities = async () => {
+            setIsLoading(true);
+            try {
+                // Use the new IPC handler
+                if (window.electron?.game?.getLocationEntities) {
+                    const data = await window.electron.game.getLocationEntities(worldId, gameState.locationId);
+                    setEntities(data || []);
+                }
+            } catch (error) {
+                console.error("Failed to fetch location entities:", error);
+            } finally {
+                setIsLoading(false);
+            }
+        };
+
+        fetchEntities();
+    }, [gameState.locationId, worldId]);
+
+    return (
+        <div className="p-4 flex flex-col gap-4 w-full">
+            <div className="bg-white/5 p-3 rounded border border-white/10">
+                <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1">Current Location</h3>
+                <div className="text-lg font-bold text-white flex items-center gap-2">
+                    <Map size={18} className="text-cyan-400" />
+                    {gameState.locationName || 'Unknown'}
+                </div>
+                {/* Description could be fetched here if we had an API for it */}
+            </div>
+
+            <div>
+                <h3 className="text-xs font-bold text-muted-foreground mb-2 uppercase tracking-wider flex justify-between items-center">
+                    Entities Here
+                    <span className="bg-white/10 text-white px-1.5 rounded-full text-[10px]">{entities.length}</span>
+                </h3>
+
+                {isLoading ? (
+                    <div className="text-center py-4 text-xs text-muted-foreground animate-pulse">Loading...</div>
+                ) : (
+                    <div className="space-y-2">
+                        {entities.length === 0 ? (
+                            <div className="text-sm text-zinc-500 italic text-center py-2">No one is here.</div>
+                        ) : (
+                            entities.map((entity) => {
+                                // Extract simple attributes for display
+                                const role = entity.attributes?.role || 'Unknown';
+                                const type = entity.type === 'ENTITY_PLAYER' ? 'Player' : 'NPC';
+
+                                return (
+                                    <div key={entity.id} className="flex items-center gap-3 p-2 rounded bg-black/30 border border-white/5 hover:bg-white/5 transition-colors group">
+                                        <div className={`h-8 w-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0 shadow-inner
+                                            ${type === 'Player' ? 'bg-blue-900/50 text-blue-200' : 'bg-purple-900/50 text-purple-200'}
+                                        `}>
+                                            {entity.name[0]}
+                                        </div>
+                                        <div className="min-w-0 flex-1">
+                                            <div className="flex items-center justify-between">
+                                                <div className="text-sm font-bold truncate text-zinc-200">{entity.name}</div>
+                                                <div className="text-[10px] uppercase tracking-wider text-zinc-500 bg-white/5 px-1.5 rounded">{role}</div>
+                                            </div>
+                                            <div className="text-xs text-zinc-500 truncate">{entity.description}</div>
+                                        </div>
+                                    </div>
+                                );
+                            })
+                        )}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+
 export default function Home() {
     const router = useRouter();
     const [messages, setMessages] = useState<Message[]>([]);
@@ -1041,12 +1120,12 @@ export default function Home() {
                                     <SortableWidget key={widget} id={widget} onRemove={() => removeWidget(widget)}>
                                         {widget === 'inventory' && <SidePanelInventory />}
                                         {widget === 'status' && <SidePanelStatus gameState={gameState} />}
-                                        {widget !== 'inventory' && widget !== 'status' && (
+                                        {widget === 'map' && <SidePanelLocation gameState={gameState} worldId={worldId as string} />}
+                                        {widget !== 'inventory' && widget !== 'status' && widget !== 'map' && (
                                             <div className="p-6 text-center text-muted-foreground text-sm">
                                                 <div className="mb-4 flex justify-center opacity-20">
                                                     {widget === 'skills' && <Zap size={48} />}
                                                     {widget === 'quests' && <Scroll size={48} />}
-                                                    {widget === 'map' && <Map size={48} />}
                                                 </div>
                                                 <p>{widget.toUpperCase()} is under construction.</p>
                                             </div>
