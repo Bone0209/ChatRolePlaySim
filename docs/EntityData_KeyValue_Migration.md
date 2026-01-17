@@ -9,8 +9,10 @@
 
 1.  **統合テーブル**: Persona/Parameter/Stateを `EntityAttribute` テーブル群に統合し、`category` カラムで分類します。
 2.  **Key-Value形式**: 従来のJSONカラムをやめ、1プロパティ＝1レコードのKey-Value形式（縦持ち）に移行します。
-3.  **定義と値の分離**: 値（Value）はTransactionテーブル、そのデータの意味や表示設定（Meta）はMasterテーブルで管理します。
-4.  **ハイブリッドMeta**: グローバル定義＋ワールド固有オーバーライドの二層構造を採用します。
+3.  **定義とメタデータの分離**:
+    *   `MAttributeDefinition`: 「どんなステータスが存在するか」（キー名、型、カテゴリ）を定義。
+    *   `MAttributeMeta`: 「どう振る舞うか」（表示名、範囲制約、公開範囲）を定義。範囲（Range）などの制約はここで管理します。
+4.  **ハイブリッドMeta**: グローバル定義＋ワールド固有オーバーライドの二層構造を採用します（Meta側で制御）。
 5.  **定数管理**: `category`や`visibility`などの列挙値は`m_global_constants`で管理します。
 6.  **View側分類**: UIでの表示時はCategoryでフィルタリングして、State/Parameter/Personaを出し分けます。
 
@@ -62,48 +64,102 @@ const globalConstants = [
 
 ### 3.1 設計思想
 
-「好感度」「HP」などの基本パラメータはシステム共通で定義し、ワールド固有のパラメータ（例: 「正気度」「瘴気耐性」）やワールドごとの表示名カスタマイズを可能にします。
+「どんなステータスが存在するか」を定義する `MAttributeDefinition` と、
+「そのステータスがどう振る舞うか（制約、表示など）」を管理する `MAttributeMeta` に分離します。
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│  MAttributeDefinition テーブル                              │
-├─────────────────────────────────────────────────────────────┤
-│ worldId = NULL (グローバル定義)                             │
-│   ├── maxHp      → category: parameter, 表示名: "最大体力" │
-│   ├── affection  → category: state, 表示名: "好感度"       │
-│   └── personality→ category: persona, 表示名: "性格"       │
-├─────────────────────────────────────────────────────────────┤
-│ worldId = "world-dark-fantasy" (ワールド固有)               │
-│   ├── maxHp      → 表示名: "生命力" (グローバルを上書き)    │
-│   └── sanity     → category: state, 表示名: "正気度"       │
-└─────────────────────────────────────────────────────────────┘
+```mermaid
+erDiagram
+    MWorld ||--o{ MEntity : "contains"
+    MWorld ||--o{ MAttributeMeta : "overrides settings"
+
+    MEntity ||--o{ TEntityAttribute : "has values"
+    
+    MAttributeDefinition ||--o{ TEntityAttribute : "keys defined in"
+    MAttributeDefinition ||--o{ MAttributeMeta : "confgured by"
+
+    MWorld {
+        string id PK "world-dark-fantasy"
+        string name
+    }
+
+    MEntity {
+        string id PK
+        string worldId FK
+        string name "Alice"
+    }
+
+    TEntityAttribute {
+        string entityId FK
+        string keyName FK "maxHp"
+        string value "100"
+    }
+
+    MAttributeDefinition {
+        string keyName PK "maxHp"
+        string type "number"
+        string category "parameter"
+    }
+
+    MAttributeMeta {
+        string keyName FK
+        string worldId FK "NULL(Global) or specific ID"
+        string displayName "Life(World) / HP(Global)"
+        string range
+    }
 ```
 
 ### 3.2 Prismaモデル定義
 
+#### M_Attribute_Definition (定義マスタ)
+ステータスの存在定義を行います。ここはワールドに依存しない普遍的な定義です。
+
 ```prisma
 model MAttributeDefinition {
+  keyName         String   @id @map("key_name") // IDとして使用
+  category        String                     // m_global_constants.attribute_category
+  valueType       String   @map("value_type") // m_global_constants.value_type
+  description     String?  // 開発者向け説明
+
+  metas           MAttributeMeta[]
+  
+  @@map("m_attribute_definitions")
+}
+```
+
+#### M_Attribute_Meta (設定・制約マスタ)
+表示設定や値の範囲制約などを管理します。ワールドごとのオーバーライドをここで吸収します。
+
+```prisma
+model MAttributeMeta {
   id              Int      @id @default(autoincrement())
-  worldId         String?  @map("world_id")  // NULLならグローバル定義
+  worldId         String?  @map("world_id")  // NULLならグローバル設定
   keyName         String   @map("key_name")
-  category        String                     // m_global_constants.attribute_category を参照
+  
+  // === 表示設定 ===
   displayName     String   @map("display_name")
-  valueType       String   @map("value_type") // m_global_constants.value_type を参照
-  description     String?
   displayOrder    Int      @default(0) @map("display_order")
   
-  // === 公開範囲（条件付き対応） ===
-  visibility      String   @default("public") // m_global_constants.visibility を参照
-  visibilityParam String?  @map("visibility_param") // 条件パラメータ（JSON）
+  // === 制約 (Constraints) ===
+  // 単純なMin/Maxはカラムとして持つ（検索・バリデーション用）
+  rangeMin        Float?   @map("range_min")
+  rangeMax        Float?   @map("range_max")
   
-  // === 拡張用メタデータ ===
-  metadata        Json?    // 将来の拡張用（icon, color, animation等）
+  // === 公開範囲 ===
+  visibility      String   @default("public")
+  visibilityParam String?  @map("visibility_param")
+  
+  // === その他拡張 ===
+  metadata        Json?    // Icon, Color, etc.
   
   createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  definition      MAttributeDefinition @relation(fields: [keyName], references: [keyName], onDelete: Cascade)
   world           MWorld?  @relation(fields: [worldId], references: [id], onDelete: Cascade)
 
   @@unique([worldId, keyName])
-  @@map("m_attribute_definitions")
+  @@map("m_attribute_metas")
 }
 ```
 
@@ -143,7 +199,7 @@ model MEntityAttribute {
 > [!NOTE]
 > **MAttributeDefinitionへの直接リレーションは設けない設計**
 > 
-> `MAttributeDefinition`はハイブリッド構造（グローバル + ワールド固有オーバーライド）のため、同一の`keyName`に対して複数レコードが存在し得ます。そのため、1対1/1対多のリレーションでは表現できず、`keyName`による論理的な関連としてViewでフォールバック付きJOINを行います（セクション11参照）。
+> `MAttributeMeta`はハイブリッド構造のため、1対1/1対多のリレーションでは表現しきれません。`keyName`による論理的な関連としてViewでフォールバック付きJOINを行います。
 
 #### T_Entity_Attribute（現在値トランザクション）
 
@@ -285,25 +341,25 @@ const parameterAttributes = await getEntityAttributesByCategory(entityId, 'param
 
 ```typescript
 /**
- * 属性定義を取得する（ワールド固有 → グローバルの順でフォールバック）
+ * 属性定義とメタデータを取得する
  */
-async function getAttributeDefinition(
+async function getAttributeMeta(
   keyName: string, 
   worldId: string
-): Promise<AttributeDefinition | null> {
-  // 1. まずワールド固有の定義を探す
-  let definition = await prisma.mAttributeDefinition.findUnique({
+): Promise<AttributeMeta | null> {
+  // 1. まずワールド固有のメタを探す
+  let meta = await prisma.mAttributeMeta.findUnique({
     where: { worldId_keyName: { worldId, keyName } }
   });
   
-  // 2. なければグローバル定義にフォールバック
-  if (!definition) {
-    definition = await prisma.mAttributeDefinition.findFirst({
+  // 2. なければグローバル設定にフォールバック
+  if (!meta) {
+    meta = await prisma.mAttributeMeta.findFirst({
       where: { worldId: null, keyName }
     });
   }
   
-  return definition;
+  return meta;
 }
 ```
 
@@ -386,20 +442,27 @@ SELECT
   tea.key_name,
   tea.key_value,
   me.world_id,
-  COALESCE(world_def.category, global_def.category) AS category,
-  COALESCE(world_def.display_name, global_def.display_name) AS display_name,
-  COALESCE(world_def.value_type, global_def.value_type) AS value_type,
-  COALESCE(world_def.description, global_def.description) AS description,
-  COALESCE(world_def.display_order, global_def.display_order, 0) AS display_order,
-  COALESCE(world_def.visibility, global_def.visibility, 'public') AS visibility,
-  COALESCE(world_def.visibility_param, global_def.visibility_param) AS visibility_param,
+  
+  -- Definition (Base)
+  def.category,
+  def.value_type,
+  
+  -- Meta (Resolved with Fallback: World > Global)
+  COALESCE(world_meta.display_name, global_meta.display_name, tea.key_name) AS display_name,
+  COALESCE(world_meta.display_order, global_meta.display_order, 0) AS display_order,
+  COALESCE(world_meta.range_min, global_meta.range_min) AS range_min,
+  COALESCE(world_meta.range_max, global_meta.range_max) AS range_max,
+  COALESCE(world_meta.visibility, global_meta.visibility, 'public') AS visibility,
+  COALESCE(world_meta.visibility_param, global_meta.visibility_param) AS visibility_param,
+  
   tea.updated_at
 FROM t_entity_attributes tea
 INNER JOIN m_entities me ON tea.entity_id = me.id
-LEFT JOIN m_attribute_definitions world_def 
-  ON tea.key_name = world_def.key_name AND me.world_id = world_def.world_id
-LEFT JOIN m_attribute_definitions global_def 
-  ON tea.key_name = global_def.key_name AND global_def.world_id IS NULL;
+INNER JOIN m_attribute_definitions def ON tea.key_name = def.key_name
+LEFT JOIN m_attribute_metas world_meta
+  ON tea.key_name = world_meta.key_name AND me.world_id = world_meta.world_id
+LEFT JOIN m_attribute_metas global_meta
+  ON tea.key_name = global_meta.key_name AND global_meta.world_id IS NULL;
 ```
 
 ### 11.3 Prisma View モデル
@@ -411,14 +474,18 @@ view VEntityAttributeDetail {
   keyValue        String   @map("key_value")
   worldId         String   @map("world_id")
   
-  // Resolved Metadata (Fallback applied)
-  category        String?
-  displayName     String?  @map("display_name")
-  valueType       String?  @map("value_type")
-  description     String?
-  displayOrder    Int?     @map("display_order")
-  visibility      String?
+  // From Definition
+  category        String
+  valueType       String   @map("value_type")
+  
+  // From Meta (Resolved)
+  displayName     String   @map("display_name")
+  displayOrder    Int      @map("display_order")
+  rangeMin        Float?   @map("range_min")
+  rangeMax        Float?   @map("range_max")
+  visibility      String
   visibilityParam String?  @map("visibility_param")
+  
   updatedAt       DateTime @map("updated_at")
 
   @@unique([entityId, keyName])
@@ -429,7 +496,7 @@ view VEntityAttributeDetail {
 ### 11.4 使用例
 
 ```typescript
-// カテゴリ別に属性を取得（Viewを使用）
+// カテゴリ別に属性を取得
 const stateAttributes = await prisma.vEntityAttributeDetail.findMany({
   where: {
     entityId: 'some-entity-id',
@@ -437,6 +504,13 @@ const stateAttributes = await prisma.vEntityAttributeDetail.findMany({
   },
   orderBy: { displayOrder: 'asc' }
 });
+
+// バリデーション例（更新時）
+if (attr.valueType === 'number' && attr.rangeMax !== null) {
+  if (newValue > attr.rangeMax) {
+    throw new Error('Value exceeds maximum');
+  }
+}
 ```
 
 ---

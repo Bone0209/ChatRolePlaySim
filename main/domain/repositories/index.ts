@@ -2,6 +2,10 @@
  * Domain Repositories - エクスポート集約
  */
 
-export type { IWorldRepository } from './IWorldRepository';
-export type { IEntityRepository, ParameterCategory } from './IEntityRepository';
-export type { IChatRepository } from './IChatRepository';
+export * from './IWorldRepository';
+export * from './IEntityRepository';
+export * from './IChatRepository';
+export * from './IApiLogRepository';
+export * from './IUserProfileRepository';
+export * from './IGlobalConstantRepository';
+export * from './ILocationRepository';

@@ -3,6 +3,7 @@
  * 
  * Prismaを使用してGameEntityの永続化を行います。
  * M/T/Hテーブル構造に対応し、履歴管理も行います。
+ * キー・バリュー形式の属性管理とViewを使用したデータ復元を行います。
  */
 
 import { IEntityRepository, ParameterCategory } from '../../domain/repositories';
@@ -21,17 +22,20 @@ export class PrismaEntityRepository implements IEntityRepository {
     async findById(id: string): Promise<GameEntity | null> {
         if (!prisma) throw new Error('Database not initialized');
 
-        const record = await (prisma as any).mEntity.findUnique({
-            where: { id },
-            include: {
-                currentState: true,
-                currentPersona: true,
-                currentParameter: true
-            }
+        // 1. 基本情報を取得
+        const mEntity = await (prisma as any).mEntity.findUnique({
+            where: { id }
         });
 
-        if (!record) return null;
-        return this.toDomain(record);
+        if (!mEntity) return null;
+
+        // 2. 属性詳細(View)から全属性を取得
+        const attributes = await (prisma as any).vEntityAttributeDetail.findMany({
+            where: { entityId: id }
+        });
+
+        // 3. ドメインエンティティに変換
+        return this.reconstructEntity(mEntity, attributes);
     }
 
     /**
@@ -40,16 +44,20 @@ export class PrismaEntityRepository implements IEntityRepository {
     async findByWorldId(worldId: string): Promise<GameEntity[]> {
         if (!prisma) throw new Error('Database not initialized');
 
-        const records = await (prisma as any).mEntity.findMany({
-            where: { worldId },
-            include: {
-                currentState: true,
-                currentPersona: true,
-                currentParameter: true
-            }
+        const mEntities = await (prisma as any).mEntity.findMany({
+            where: { worldId }
         });
 
-        return records.map((r: any) => this.toDomain(r));
+        const results: GameEntity[] = [];
+        for (const mEntity of mEntities) {
+            // N+1問題になるが、一旦シンプルに実装（必要ならViewを一括取得してメモリ結合）
+            const attributes = await (prisma as any).vEntityAttributeDetail.findMany({
+                where: { entityId: mEntity.id }
+            });
+            results.push(this.reconstructEntity(mEntity, attributes));
+        }
+
+        return results;
     }
 
     /**
@@ -61,16 +69,17 @@ export class PrismaEntityRepository implements IEntityRepository {
         const where: any = { type };
         if (worldId) where.worldId = worldId;
 
-        const records = await (prisma as any).mEntity.findMany({
-            where,
-            include: {
-                currentState: true,
-                currentPersona: true,
-                currentParameter: true
-            }
-        });
+        const mEntities = await (prisma as any).mEntity.findMany({ where });
 
-        return records.map((r: any) => this.toDomain(r));
+        const results: GameEntity[] = [];
+        for (const mEntity of mEntities) {
+            const attributes = await (prisma as any).vEntityAttributeDetail.findMany({
+                where: { entityId: mEntity.id }
+            });
+            results.push(this.reconstructEntity(mEntity, attributes));
+        }
+
+        return results;
     }
 
     /**
@@ -79,17 +88,17 @@ export class PrismaEntityRepository implements IEntityRepository {
     async findPlayer(worldId: string): Promise<GameEntity | null> {
         if (!prisma) throw new Error('Database not initialized');
 
-        const record = await (prisma as any).mEntity.findFirst({
-            where: { type: 'ENTITY_PLAYER', worldId },
-            include: {
-                currentState: true,
-                currentPersona: true,
-                currentParameter: true
-            }
+        const mEntity = await (prisma as any).mEntity.findFirst({
+            where: { type: 'ENTITY_PLAYER', worldId }
         });
 
-        if (!record) return null;
-        return this.toDomain(record);
+        if (!mEntity) return null;
+
+        const attributes = await (prisma as any).vEntityAttributeDetail.findMany({
+            where: { entityId: mEntity.id }
+        });
+
+        return this.reconstructEntity(mEntity, attributes);
     }
 
     /**
@@ -98,9 +107,10 @@ export class PrismaEntityRepository implements IEntityRepository {
     async findNpcsByLocation(locationId: string, worldId: string): Promise<GameEntity[]> {
         if (!prisma) throw new Error('Database not initialized');
 
-        // すべてのNPCを取得してからフィルタリング（JSONフィールド内の検索のため）
+        // Note: Viewを使ってSQLレベルでフィルタリングすることも可能だが、
+        // locationIdは "state" カテゴリの "locationId" キーとして格納されている。
+        // ここでは既存のfindByTypeを再利用してメモリフィルタリングする（安全策）。
         const allNpcs = await this.findByType('ENTITY_NPC', worldId);
-
         return allNpcs.filter(npc => npc.getLocationId() === locationId);
     }
 
@@ -110,60 +120,111 @@ export class PrismaEntityRepository implements IEntityRepository {
     async save(entity: GameEntity): Promise<GameEntity> {
         if (!prisma) throw new Error('Database not initialized');
 
-        const personaData = this.parameterMapToJson(entity.persona);
-        const parameterData = this.parameterMapToJson(entity.parameter);
-        const stateData = this.parameterMapToJson(entity.state);
-
         const existing = await (prisma as any).mEntity.findUnique({
             where: { id: entity.id }
         });
 
+        // 1. MEntityの更新/作成
         if (existing) {
-            // 更新（各カテゴリのT_テーブルを更新）
-            await (prisma as any).$transaction([
-                (prisma as any).mEntity.update({
-                    where: { id: entity.id },
-                    data: {
-                        name: entity.name,
-                        description: entity.description
-                    }
-                }),
-                (prisma as any).tEntityPersona.upsert({
-                    where: { entityId: entity.id },
-                    update: { data: personaData },
-                    create: { entityId: entity.id, data: personaData }
-                }),
-                (prisma as any).tEntityParameter.upsert({
-                    where: { entityId: entity.id },
-                    update: { data: parameterData },
-                    create: { entityId: entity.id, data: parameterData }
-                }),
-                (prisma as any).tEntityState.upsert({
-                    where: { entityId: entity.id },
-                    update: { data: stateData },
-                    create: { entityId: entity.id, data: stateData }
-                })
-            ]);
+            await (prisma as any).mEntity.update({
+                where: { id: entity.id },
+                data: {
+                    name: entity.name,
+                    description: entity.description
+                }
+            });
         } else {
-            // 新規作成（M_とT_の両方を作成）
             await (prisma as any).mEntity.create({
                 data: {
                     id: entity.id,
                     worldId: entity.worldId,
                     type: entity.type,
                     name: entity.name,
-                    description: entity.description,
-                    initialPersona: { create: { data: personaData } },
-                    currentPersona: { create: { data: personaData } },
-                    initialParameter: { create: { data: parameterData } },
-                    currentParameter: { create: { data: parameterData } },
-                    initialState: { create: { data: stateData } },
-                    currentState: { create: { data: stateData } }
+                    description: entity.description
                 }
             });
         }
 
-        // 保存後のエンティティを再取得して返す
+        // 2. 属性の更新（T更新 + H作成）
+        // ドメインエンティティの持つ全属性をフラットに取得
+        const allParams = entity.getAllParameters(); // { val, vis, category }
+
+        // トランザクションで一括処理
+        await (prisma as any).$transaction(async (tx: any) => {
+            for (const [key, param] of Object.entries(allParams)) {
+
+                // 値の文字列化
+                const newValueStr = this.valueToString(param.val);
+
+                // Definitionの存在保証 (Dynamic Attribute Support)
+                const valueType = typeof param.val === 'number' ? 'number' : typeof param.val === 'boolean' ? 'boolean' : 'string';
+                await tx.mAttributeDefinition.upsert({
+                    where: { keyName: key },
+                    update: {},
+                    create: {
+                        keyName: key,
+                        valueType: valueType,
+                        category: param.category || 'parameter', // Default fallback
+                        description: `Auto-generated ${key}`
+                    }
+                });
+
+                // 現在の値を取得
+                const currentAttr = await tx.tEntityAttribute.findUnique({
+                    where: { entityId_keyName: { entityId: entity.id, keyName: key } }
+                });
+
+                if (currentAttr) {
+                    // 変更がある場合のみ更新
+                    if (currentAttr.keyValue !== newValueStr) {
+                        // T更新
+                        await tx.tEntityAttribute.update({
+                            where: { id: currentAttr.id },
+                            data: { keyValue: newValueStr }
+                        });
+
+                        // H作成
+                        await tx.hEntityAttribute.create({
+                            data: {
+                                entityId: entity.id,
+                                keyName: key,
+                                oldValue: currentAttr.keyValue,
+                                newValue: newValueStr,
+                                changeType: 'update'
+                            }
+                        });
+                    }
+                } else {
+                    // 新規作成
+                    try {
+                        // console.log(`[Repo] Saving attribute: ${key} = ${newValueStr}`);
+                        await tx.tEntityAttribute.create({
+                            data: {
+                                entityId: entity.id,
+                                keyName: key,
+                                keyValue: newValueStr
+                            }
+                        });
+                    } catch (e) {
+                        console.error(`[Repo] Failed to save attribute ${key}:`, e);
+                        throw e;
+                    }
+
+                    // H作成
+                    await tx.hEntityAttribute.create({
+                        data: {
+                            entityId: entity.id,
+                            keyName: key,
+                            oldValue: null,
+                            newValue: newValueStr,
+                            changeType: 'create'
+                        }
+                    });
+                }
+            }
+        });
+
+        // 保存後の状態を再取得して返す
         return (await this.findById(entity.id))!;
     }
 
@@ -178,60 +239,57 @@ export class PrismaEntityRepository implements IEntityRepository {
     ): Promise<void> {
         if (!prisma) throw new Error('Database not initialized');
 
-        // カテゴリに応じたテーブルを選択
-        const tableMap = {
-            state: { current: 'tEntityState', history: 'hEntityState' },
-            persona: { current: 'tEntityPersona', history: 'hEntityPersona' },
-            parameter: { current: 'tEntityParameter', history: 'hEntityParameter' }
-        };
+        await (prisma as any).$transaction(async (tx: any) => {
+            const newValueStr = this.valueToString(value.value);
 
-        const tables = tableMap[category];
-        if (!tables) throw new Error(`Invalid category: ${category}`);
+            // Definitionの存在保証
+            const valueType = typeof value.value === 'number' ? 'number' : typeof value.value === 'boolean' ? 'boolean' : 'string';
+            await tx.mAttributeDefinition.upsert({
+                where: { keyName: key },
+                update: {},
+                create: {
+                    keyName: key,
+                    valueType: valueType,
+                    category: category,
+                    description: `Auto-generated ${key}`
+                }
+            });
 
-        // 現在のデータを取得
-        const currentRecord = await (prisma as any)[tables.current].findUnique({
-            where: { entityId }
-        });
+            const currentAttr = await tx.tEntityAttribute.findUnique({
+                where: { entityId_keyName: { entityId, keyName: key } }
+            });
 
-        if (!currentRecord) {
-            throw new Error(`Current record not found for entity ${entityId} in category ${category}`);
-        }
-
-        const currentData = (currentRecord.data as Record<string, any>) || {};
-        const oldValue = currentData[key];
-        const newValueJson = value.toJson();
-
-        // 差分を計算
-        const diff: any = {};
-        if (oldValue === undefined) {
-            diff.add = { [key]: newValueJson };
-        } else {
-            diff.upd = { [key]: newValueJson };
-        }
-
-        // 新しいデータを作成
-        const newData = { ...currentData, [key]: newValueJson };
-
-        // トランザクションで更新と履歴記録を実行
-        try {
-            await (prisma as any).$transaction([
-                (prisma as any)[tables.current].update({
-                    where: { entityId },
-                    data: { data: newData }
-                }),
-                (prisma as any)[tables.history].create({
+            if (currentAttr) {
+                if (currentAttr.keyValue !== newValueStr) {
+                    await tx.tEntityAttribute.update({
+                        where: { id: currentAttr.id },
+                        data: { keyValue: newValueStr }
+                    });
+                    await tx.hEntityAttribute.create({
+                        data: {
+                            entityId,
+                            keyName: key,
+                            oldValue: currentAttr.keyValue,
+                            newValue: newValueStr,
+                            changeType: 'update'
+                        }
+                    });
+                }
+            } else {
+                await tx.tEntityAttribute.create({
+                    data: { entityId, keyName: key, keyValue: newValueStr }
+                });
+                await tx.hEntityAttribute.create({
                     data: {
                         entityId,
-                        diff
+                        keyName: key,
+                        oldValue: null,
+                        newValue: newValueStr,
+                        changeType: 'create'
                     }
-                })
-            ]);
-            console.log(`[EntityRepository] Updated ${category}.${key} for ${entityId}. New Value:`, JSON.stringify(newValueJson));
-            console.log(`[EntityRepository] New Data for ${tables.current}:`, JSON.stringify(newData).substring(0, 100) + '...');
-        } catch (error) {
-            console.error(`[EntityRepository] Detailed Debug: Failed transaction. Current Table: ${tables.current}, Key: ${key}, Value: ${JSON.stringify(newValueJson)}`);
-            throw error;
-        }
+                });
+            }
+        });
     }
 
     /**
@@ -240,61 +298,81 @@ export class PrismaEntityRepository implements IEntityRepository {
     async delete(id: string): Promise<void> {
         if (!prisma) throw new Error('Database not initialized');
 
+        // Cascade delete設定により関連テーブルも削除される想定
         await (prisma as any).mEntity.delete({
             where: { id }
         });
     }
 
-    // --- Private Helper Methods ---
+    // --- Helper Methods ---
 
-    /**
-     * Prismaモデルからドメインエンティティへ変換
-     */
-    private toDomain(record: any): GameEntity {
-        const persona = this.jsonToParameterMap(record.currentPersona?.data || {});
-        const parameter = this.jsonToParameterMap(record.currentParameter?.data || {});
-        const state = this.jsonToParameterMap(record.currentState?.data || {});
+    private reconstructEntity(mEntity: any, attributes: any[]): GameEntity {
+        const persona = new Map();
+        const parameter = new Map();
+        const state = new Map();
+
+        for (const attr of attributes) {
+            // 値の型変換
+            const value = this.stringToValue(attr.keyValue, attr.valueType);
+
+            // Visibilityオブジェクトの構築
+            let visibility: Visibility;
+
+            // Viewから取得したメタデータを使用
+            if (attr.visibility === 'public') {
+                visibility = Visibility.public();
+            } else if (attr.visibility === 'private') {
+                visibility = Visibility.private();
+            } else {
+                visibility = Visibility.fromString(attr.visibility);
+                // パラメータ付きVisibilityの場合などは別途対応が必要だが、
+                // 現状のドメインオブジェクトにあわせて実装。
+            }
+
+            const paramValue = ParameterValue.create(value, visibility);
+
+            // カテゴリ振り分け
+            if (attr.category === 'persona') {
+                persona.set(attr.keyName, paramValue);
+            } else if (attr.category === 'state') {
+                state.set(attr.keyName, paramValue);
+            } else {
+                parameter.set(attr.keyName, paramValue);
+            }
+        }
 
         return GameEntity.reconstruct({
-            id: record.id,
-            worldId: record.worldId,
-            type: record.type as EntityType,
-            name: record.name,
-            description: record.description || '',
-            createdAt: record.createdAt,
+            id: mEntity.id,
+            worldId: mEntity.worldId,
+            type: mEntity.type as EntityType,
+            name: mEntity.name,
+            description: mEntity.description || '',
+            createdAt: mEntity.createdAt,
             persona,
             parameter,
             state
         });
     }
 
-    /**
-     * JSONオブジェクトからParameterMapへ変換
-     */
-    private jsonToParameterMap(data: Record<string, any>): ParameterMap {
-        const map: ParameterMap = new Map();
-
-        for (const [key, value] of Object.entries(data)) {
-            if (value && typeof value === 'object' && 'val' in value) {
-                // 新しい形式: { val, vis }
-                map.set(key, ParameterValue.fromJson(value));
-            } else {
-                // レガシー形式: 直接の値
-                map.set(key, ParameterValue.fromPlainValue(value));
-            }
-        }
-
-        return map;
+    private valueToString(value: unknown): string {
+        if (typeof value === 'string') return value;
+        if (typeof value === 'number') return String(value);
+        if (typeof value === 'boolean') return String(value);
+        if (value instanceof Date) return value.toISOString();
+        if (value === null || value === undefined) return '';
+        return JSON.stringify(value);
     }
 
-    /**
-     * ParameterMapからJSONオブジェクトへ変換
-     */
-    private parameterMapToJson(map: ParameterMap): Record<string, any> {
-        const result: Record<string, any> = {};
-        map.forEach((value, key) => {
-            result[key] = value.toJson();
-        });
-        return result;
+    private stringToValue(str: string, type: string): unknown {
+        switch (type) {
+            case 'string': return str;
+            case 'number':
+            case 'integer':
+            case 'float':
+                return Number(str);
+            case 'boolean': return str === 'true';
+            case 'json': try { return JSON.parse(str); } catch { return str; }
+            default: return str;
+        }
     }
 }

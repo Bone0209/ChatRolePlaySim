@@ -2,11 +2,11 @@
  * CreateWorldUseCase - ワールド作成ユースケース
  */
 
-import type { IWorldRepository, IEntityRepository } from '../../../domain/repositories';
-import { World, GameEntity } from '../../../domain/entities';
+import type { IWorldRepository, IEntityRepository, ILocationRepository } from '../../../domain/repositories';
+import { World, GameEntity, Location } from '../../../domain/entities';
 import type { EntityType, ParameterMap } from '../../../domain/entities';
 import { ParameterValue, Visibility } from '../../../domain/value-objects';
-import { WorldDto, CreateWorldRequestDto } from '../../dtos';
+import { WorldDto, CreateWorldRequestDto, WorldEntityConfig } from '../../dtos';
 
 import { v4 as uuidv4 } from 'uuid';
 import path from 'path';
@@ -20,6 +20,7 @@ import { PromptTemplate } from '../../../infrastructure/prompts';
 export class CreateWorldUseCase {
     constructor(
         private readonly worldRepository: IWorldRepository,
+        private readonly locationRepository: ILocationRepository,
         private readonly entityRepository: IEntityRepository,
         private readonly llmGateway: LlmGateway,
         private readonly promptsPath: string
@@ -65,12 +66,12 @@ export class CreateWorldUseCase {
                     // プロンプトレンダリング
                     const promptText = template.render({
                         context: request.name + "\n" + request.prompt,
-                        flavor: "Fantasy RPG" // TODO: 受け取るかランダムにするか。一旦固定かrequestから取れるなら取る。
+                        flavor: "Fantasy RPG"
                     });
 
                     // LLM呼び出し
                     const generatedData = await this.llmGateway.generateJson(promptText, "Generate NPC and Location in JSON format.", {
-                        model: 'main', // クリエイティブな生成なのでMain推奨
+                        model: 'main',
                         metadata: {
                             apiType: 'world_gen_npc',
                             worldId: world.id
@@ -80,7 +81,18 @@ export class CreateWorldUseCase {
                     // データ整形
                     if (generatedData && generatedData.npc && generatedData.npc.environment) {
                         const locationName = generatedData.location?.name || 'Unknown Location';
-                        const locationId = uuidv4(); // Generate proper Location ID
+                        const locationDescription = generatedData.location?.description || '';
+                        const locationId = uuidv4();
+
+                        // Locationエンティティの作成・保存
+                        const location = Location.create({
+                            id: locationId,
+                            worldId: world.id,
+                            name: locationName,
+                            description: locationDescription,
+                            attributes: new Map() // 必要なら生成データから設定
+                        });
+                        await this.locationRepository.save(location);
 
                         // NPCデータ構築
                         const npcId = uuidv4();
@@ -127,10 +139,8 @@ export class CreateWorldUseCase {
                     console.warn(`[CreateWorldUseCase] Auto-generation attempt ${attempts} failed:`, e);
                     if (attempts >= maxAttempts) {
                         console.error('[CreateWorldUseCase] All auto-generation attempts failed.');
-                        // ワールド作成自体を失敗させる（ユーザーに通知）
                         throw new Error("Failed to generate world characters after multiple attempts. Please try again.");
                     }
-                    // 少し待機してからリトライ
                     await new Promise(resolve => setTimeout(resolve, 1000));
                 }
             }
@@ -142,7 +152,7 @@ export class CreateWorldUseCase {
                 const { persona, parameter, state } = this.splitEnvironment(entityData.environment);
 
                 const entity = GameEntity.create({
-                    id: entityData.id || uuidv4(), // IDがなければ生成
+                    id: entityData.id || uuidv4(),
                     worldId: world.id,
                     type: entityData.type as EntityType,
                     name: entityData.name,

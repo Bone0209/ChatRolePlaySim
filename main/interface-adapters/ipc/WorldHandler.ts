@@ -6,7 +6,7 @@
  */
 
 import { ipcMain } from 'electron';
-import { IWorldRepository, IEntityRepository } from '../../domain/repositories';
+import { IWorldRepository, IEntityRepository, ILocationRepository } from '../../domain/repositories';
 import { CreateWorldUseCase, GetWorldsUseCase } from '../../application/usecases/world';
 import { CreateWorldRequestDto } from '../../application/dtos';
 import { LlmGateway } from '../../infrastructure/gateways';
@@ -19,6 +19,7 @@ import fs from 'fs';
  */
 export function registerWorldHandler(
     worldRepository: IWorldRepository,
+    locationRepository: ILocationRepository,
     entityRepository: IEntityRepository,
     llmGateway: LlmGateway,
     promptsPath: string
@@ -39,7 +40,7 @@ export function registerWorldHandler(
 
     // ワールド作成
     ipcMain.handle('world:create', async (event, data: CreateWorldRequestDto) => {
-        const useCase = new CreateWorldUseCase(worldRepository, entityRepository, llmGateway, promptsPath);
+        const useCase = new CreateWorldUseCase(worldRepository, locationRepository, entityRepository, llmGateway, promptsPath);
         return useCase.execute(data);
     });
 
@@ -47,6 +48,13 @@ export function registerWorldHandler(
     ipcMain.handle('world:delete', async (event, id: string) => {
         await worldRepository.delete(id);
         return { success: true };
+    });
+
+    // ロケーション作成
+    ipcMain.handle('location:create', async (event, data: any) => {
+        const { CreateLocationUseCase } = await import('../../application/usecases/location/CreateLocationUseCase');
+        const useCase = new CreateLocationUseCase(locationRepository);
+        return useCase.execute(data);
     });
 
     // AI生成（タイトル、説明、NPC）

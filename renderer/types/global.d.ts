@@ -31,11 +31,14 @@ declare global {
             worldGet: (id: string) => Promise<WorldData>;
             worldCreate: (data: { name: string, prompt: string, entities?: any[] }) => Promise<WorldData>;
             worldGenerate: (data: { type: 'title' | 'description' | 'npc', context: string }) => Promise<string>;
+            locationCreate: (data: { worldId: string, name: string, description: string, attributes?: Record<string, any> }) => Promise<any>;
             game: {
                 processAction: (mode: string, content: string, worldId: string) => Promise<any>;
                 getState: (worldId: string) => Promise<any>;
                 getChatHistory: (worldId: string) => Promise<any[]>;
                 getEntity: (entityId: string) => Promise<any>;
+                getLocationEntities: (worldId: string, locationId: string) => Promise<any[]>;
+                entityCreate: (data: any) => Promise<any>;
             };
             profile: {
                 list: () => Promise<any[]>;

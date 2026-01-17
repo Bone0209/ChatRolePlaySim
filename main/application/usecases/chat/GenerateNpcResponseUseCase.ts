@@ -309,7 +309,8 @@ export class GenerateNpcResponseUseCase {
             input.message,
             combinedResponseText,
             npc.name,
-            npc.getAffection()
+            npc.getAffection(),
+            npc.id // Pass ID for logging metadata
         );
 
         if (affectionResult.affection_delta !== 0) {

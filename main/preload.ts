@@ -9,11 +9,14 @@ contextBridge.exposeInMainWorld('electron', {
     worldGet: (id: string) => ipcRenderer.invoke('world:get', id),
     worldCreate: (data: { name: string, prompt: string, entities?: any[] }) => ipcRenderer.invoke('world:create', data),
     worldGenerate: (data: { type: 'title' | 'description', context: string }) => ipcRenderer.invoke('world:generate', data),
+    locationCreate: (data: any) => ipcRenderer.invoke('location:create', data),
     game: {
         processAction: (mode: string, content: string, worldId: string) => ipcRenderer.invoke('game:process-action', { mode, content, worldId }),
         getState: (worldId: string) => ipcRenderer.invoke('game:get-state', worldId),
-        getChatHistory: (worldId: string) => ipcRenderer.invoke('game:get-chat-history', worldId),
+        getChatHistory: (worldId: string) => ipcRenderer.invoke('chat:get-history', worldId), // Updated path if needed, keeping consistency
         getEntity: (entityId: string) => ipcRenderer.invoke('game:get-entity', entityId),
+        getLocationEntities: (worldId: string, locationId: string) => ipcRenderer.invoke('game:get-location-entities', { worldId, locationId }),
+        entityCreate: (data: any) => ipcRenderer.invoke('entity:create', data),
     },
     profile: {
         list: () => ipcRenderer.invoke('profile:list'),
