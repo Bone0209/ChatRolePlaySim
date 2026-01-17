@@ -3,7 +3,8 @@
  */
 
 import { ipcMain } from 'electron';
-import { SendMessageUseCase } from '../../application/usecases/chat/SendMessageUseCase';
+import { SendPlayerMessageUseCase } from '../../application/usecases/chat/SendPlayerMessageUseCase';
+import { GenerateNpcResponseUseCase } from '../../application/usecases/chat/GenerateNpcResponseUseCase';
 import { IChatRepository } from '../../domain/repositories/IChatRepository';
 import { IEntityRepository } from '../../domain/repositories/IEntityRepository';
 import { PrismaUserProfileRepository } from '../../infrastructure/repositories/PrismaUserProfileRepository';
@@ -12,15 +13,17 @@ import { PrismaUserProfileRepository } from '../../infrastructure/repositories/P
  * チャットIPCハンドラを登録
  */
 export function registerChatHandler(
-    useCase: SendMessageUseCase,
+    sendPlayerMessageUseCase: SendPlayerMessageUseCase,
+    generateNpcResponseUseCase: GenerateNpcResponseUseCase,
     chatRepository: IChatRepository,
     entityRepository: IEntityRepository,
-    userProfileRepository: PrismaUserProfileRepository
+    userProfileRepository: PrismaUserProfileRepository,
+    ipc: Electron.IpcMain = ipcMain
 ) {
     console.log('[IPC] Registering chat handlers...');
 
     // チャット送信
-    ipcMain.handle('chat', async (event, params: {
+    ipc.handle('chat', async (event, params: {
         message: string;
         worldId: string;
         targetId?: string;
@@ -29,14 +32,33 @@ export function registerChatHandler(
         try {
             console.log(`[ChatHandler] Processing chat for world ${params.worldId}`);
 
-            const response = await useCase.execute({
+            // 1. Send Player Message
+            await sendPlayerMessageUseCase.execute({
                 worldId: params.worldId,
                 message: params.message,
-                targetId: params.targetId,
-                history: params.history
+                targetId: params.targetId
             });
 
-            return { success: true, data: response };
+            // 2. Generate NPC Response (Streaming)
+            if (params.targetId) {
+                // Not waiting for response here allows "fire and forget" if desired, 
+                // but for now we wait to return result.
+                const response = await generateNpcResponseUseCase.execute({
+                    worldId: params.worldId,
+                    message: params.message,
+                    targetId: params.targetId,
+                    history: params.history,
+                    onProgress: (progressEvent) => {
+                        event.sender.send('chat:stream', {
+                            worldId: params.worldId,
+                            ...progressEvent
+                        });
+                    }
+                });
+                return { success: true, data: response };
+            }
+
+            return { success: true };
         } catch (e: any) {
             console.error('[ChatHandler] Error:', e);
             // Return error as object instead of throwing to prevent Electron error dialog
@@ -49,7 +71,7 @@ export function registerChatHandler(
     });
 
     // チャット履歴取得
-    ipcMain.handle('game:get-chat-history', async (event, worldId: string) => {
+    ipc.handle('game:get-chat-history', async (event, worldId: string) => {
         if (!worldId) return [];
 
         const messages = await chatRepository.findByWorldId(worldId);

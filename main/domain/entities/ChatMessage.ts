@@ -33,6 +33,7 @@ export class ChatMessage {
     private readonly _message: string;
     private readonly _entityId: string | null;
     private readonly _createdAt: Date;
+    private readonly _isVisible: boolean;
 
     private constructor(
         id: number,
@@ -40,7 +41,8 @@ export class ChatMessage {
         type: ChatType,
         message: string,
         entityId: string | null,
-        createdAt: Date
+        createdAt: Date,
+        isVisible: boolean
     ) {
         this._id = id;
         this._worldId = worldId;
@@ -48,6 +50,7 @@ export class ChatMessage {
         this._message = message;
         this._entityId = entityId;
         this._createdAt = createdAt;
+        this._isVisible = isVisible;
     }
 
     /**
@@ -58,6 +61,7 @@ export class ChatMessage {
         type: ChatType;
         message: string;
         entityId?: string;
+        isVisible?: boolean;
     }): ChatMessage {
         return new ChatMessage(
             0, // IDは保存時に採番される
@@ -65,7 +69,8 @@ export class ChatMessage {
             params.type,
             params.message,
             params.entityId ?? null,
-            new Date()
+            new Date(),
+            params.isVisible ?? true
         );
     }
 
@@ -79,6 +84,7 @@ export class ChatMessage {
         message: string;
         entityId: string | null;
         createdAt: Date;
+        isVisible: boolean;
     }): ChatMessage {
         return new ChatMessage(
             params.id,
@@ -86,7 +92,8 @@ export class ChatMessage {
             params.type,
             params.message,
             params.entityId,
-            params.createdAt
+            params.createdAt,
+            params.isVisible
         );
     }
 
@@ -98,6 +105,7 @@ export class ChatMessage {
     get message(): string { return this._message; }
     get entityId(): string | null { return this._entityId; }
     get createdAt(): Date { return this._createdAt; }
+    get isVisible(): boolean { return this._isVisible; }
 
     // --- Business Methods ---
 

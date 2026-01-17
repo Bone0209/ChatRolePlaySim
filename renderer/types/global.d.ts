@@ -25,7 +25,8 @@ declare global {
             launchChat: (worldId: string) => void;
             openInventory: () => void;
             openStatus: () => void;
-            chat: (message: string, history: Array<{ role: string, content: string }>, targetId?: string, worldId?: string) => Promise<string>;
+            chat: (message: string, history: { role: string; content: string }[], targetId?: string, worldId?: string) => Promise<string | { success: boolean; data?: string; error?: string; message?: string }>;
+            on: (channel: string, listener: (event: any, ...args: any[]) => void) => () => void; // Returns unsubscribe function
             worldList: () => Promise<WorldData[]>;
             worldGet: (id: string) => Promise<WorldData>;
             worldCreate: (data: { name: string, prompt: string, entities?: any[] }) => Promise<WorldData>;

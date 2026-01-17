@@ -18,7 +18,10 @@ export class PrismaChatRepository implements IChatRepository {
         if (!prisma) throw new Error('Database not initialized');
 
         const records = await (prisma as any).tChat.findMany({
-            where: { worldId },
+            where: {
+                worldId,
+                isVisible: true
+            },
             orderBy: { id: 'asc' },
             take: limit
         });
@@ -37,7 +40,8 @@ export class PrismaChatRepository implements IChatRepository {
                 worldId: message.worldId,
                 chatType: chatTypeToCode(message.type),
                 message: message.message,
-                entityId: message.entityId
+                entityId: message.entityId,
+                isVisible: message.isVisible
             }
         });
 
@@ -67,7 +71,8 @@ export class PrismaChatRepository implements IChatRepository {
             type: chatTypeFromCode(record.chatType),
             message: record.message,
             entityId: record.entityId,
-            createdAt: record.createdAt
+            createdAt: record.createdAt,
+            isVisible: record.isVisible ?? true
         });
     }
 }

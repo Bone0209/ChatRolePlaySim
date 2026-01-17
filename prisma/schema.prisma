@@ -179,6 +179,7 @@ model TChat {
   message   String
   createdAt DateTime @default(now()) @map("created_at")
   entityId  String?  @map("entity_id")
+  isVisible Boolean  @default(true) @map("is_visible")
 
   world     MWorld   @relation(fields: [worldId], references: [id], onDelete: Cascade)
   entity    MEntity? @relation(fields: [entityId], references: [id], onDelete: SetNull)
