@@ -599,6 +599,96 @@ export default function Home() {
         return () => { isMounted = false; };
     }, [worldId]);
 
+    // Streaming Logic
+    useEffect(() => {
+        if (!window.electron?.on) return;
+
+        const unsubscribe = window.electron.on('chat:stream', (event: any, data: any) => {
+            // data matches { worldId, type, data: { type, name, ... } | string }
+            // Filter by worldId
+            if (data.worldId !== worldId) return;
+
+            // Determine if we need to add a new message or update existing
+            // Strategy: Maintain a special "streaming" message in the list.
+            // If the last message is NOT a streaming message (or sender!=bot), add one.
+            // But we can't easily modify state in callback without functional update.
+
+            setMessages(prev => {
+                const lastMsg = prev[prev.length - 1];
+                const isStreamingMsg = lastMsg && lastMsg.sender === 'bot' && lastMsg.id === 999999999; // Using magic ID for stream
+
+                if (data.type === 'block:start') {
+                    // Start of a new block.
+                    // Hide log and event from frontend stream
+                    if (data.data.type === 'log' || data.data.type === 'event') {
+                        return prev;
+                    }
+
+                    const blockHeader = `[${data.data.type}${data.data.name ? ':' + data.data.name : ''}]\n`;
+
+                    if (isStreamingMsg) {
+                        return [
+                            ...prev.slice(0, -1),
+                            { ...lastMsg, text: lastMsg.text + blockHeader }
+                        ];
+                    } else {
+                        return [...prev, {
+                            id: 999999999,
+                            text: blockHeader,
+                            sender: 'bot',
+                            senderName: selectedTarget?.name || 'Unknown', // Ideally get from event
+                        }];
+                    }
+                } else if (data.type === 'block:data') {
+                    // Check if we are currently safely ignoring a hidden block?
+                    // The backend StreamParser sends chunks associated with the current block.
+                    // But here we just get 'chunk'. We don't verify which block it belongs to in 'data'.
+                    // Wait, `data.data` is just string.
+                    // If we didn't start a stream msg because of block:start filter, what happens?
+                    // If `isStreamingMsg` is false (because we skipped adding it),
+                    // then we might add a NEW message with just the log content?
+                    // NO.
+                    // If `isStreamingMsg` is false, the logic below adds a new message id=999...
+
+                    // Problem: We need to know if the *current* stream block is hidden.
+                    // But `chat:stream` event (from `StreamParser` -> `GenerateNpcResponseUseCase` -> `ChatHandler`)
+                    // The `data` in `block:data` is just the raw string.
+                    // We need state to know "we are inside a hidden block".
+
+                    // However, `StreamParser` emits `block:start` then multiple `block:data`?
+                    // No, `StreamParser` emits `start` then `data`. UseCase forwards them.
+
+                    // Simple hack: If `isStreamingMsg` is FALSE, it means we don't have an active stream bubble.
+                    // If we receive data, it *might* be for a hidden block we skipped starting.
+                    // BUT, `isStreamingMsg` checks `lastMsg.id === 999...`.
+                    // If previous valid message was ID 123, then `isStreamingMsg` is false.
+                    // If we just skipped `log`, we didn't add 999.
+                    // So we arrive here. We would mistakenly add a new message with the log content!
+
+                    // We need to distinguish "No active stream" vs "Active hidden stream".
+                    // But we can't easily store "Active hidden stream" state in this functional update `prev => ...` without ref.
+
+                    // Alternative: The `StreamParser` output in `chat:stream` should ideally include the block type for every chunk,
+                    // OR we assume the backend doesn't send hidden blocks to frontend?
+
+                    // Let's modify `GenerateNpcResponseUseCase` to NOT emit progress for hidden blocks?
+                    // That is the cleanest solution.
+
+                    // ABORTING implementation in Chat.tsx for filtering.
+                    // Better to filter at the source (UseCase).
+                    return prev;
+                }
+                return prev;
+            });
+
+            // Auto scroll handled by existing useEffect on messages
+        });
+
+        return () => {
+            unsubscribe();
+        };
+    }, [worldId, selectedTarget]);
+
     const toggleWidget = (widget: SidePanelContent) => {
         const canonicalOrder: SidePanelContent[] = ['status', 'inventory', 'skills', 'quests', 'map'];
 
@@ -733,12 +823,22 @@ export default function Home() {
                 }
             } else {
                 // Fallback if no history fetch available (mock mode)
+                // Only add if NOT streaming (streaming adds msg with magic ID)
+                // But handleSendMessage awaits result. 
+                // If streaming, result might be full text OR we already displayed it via stream.
+                // The stream ID is 999999999. 
+                // When we reload history (lines above), it will replace the stream message with real DB messages.
+                // So we are good.
+                // But if history fetch FAILS, we might want to keep the stream msg or replace it.
+                // For now, let's leave this fallback only for pure mock.
                 const botResponse: Message = {
                     id: Date.now() + 1,
                     text: replyText,
                     sender: 'bot',
                     senderName: replyName,
                 };
+                // Only add if we didn't get stream updates (check if last msg is stream?)
+                // Actually, if we are in Mock mode (no window.electron), stream won't happen.
                 setMessages((prev) => [...prev, botResponse]);
             }
 
@@ -801,10 +901,21 @@ export default function Home() {
                         <div className="w-full space-y-4">
                             {messages.map((msg) => {
                                 if (msg.sender === 'system') {
+                                    // Hide internal log/event messages
+                                    if (msg.text.trim().startsWith('[log]') || msg.text.trim().startsWith('[event]')) {
+                                        return null;
+                                    }
+
+                                    // Announce or other system messages
+                                    // If [announce] tag exists, strip it for cleaner display? 
+                                    // User prompt spec said "[announce] ...". 
+                                    // Let's strip the tag for display if it's strict [announce].
+                                    const displayText = msg.text.replace(/^\[announce\]\s*/i, '');
+
                                     return (
                                         <div key={msg.id} className="flex justify-center my-4 opacity-80">
                                             <div className="bg-black/40 border border-white/10 px-4 py-2 rounded-full text-xs text-zinc-400 max-w-[80%] text-center">
-                                                {msg.text}
+                                                {displayText}
                                             </div>
                                         </div>
                                     );

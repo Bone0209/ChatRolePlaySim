@@ -215,6 +215,123 @@ export class LlmGateway {
         return response.content;
     }
 
+    /**
+     * チャット補完をストリーミングで生成
+     * @param messages メッセージ履歴
+     * @param options オプション
+     * @returns 非同期イテレータ (各チャンクの文字列)
+     */
+    async *generateStream(
+        messages: LlmMessage[],
+        options: LlmRequestOptions = {}
+    ): AsyncGenerator<string> {
+        const config = getAppConfig();
+        let modelConfig = options.model === 'sub' ? config.subModel : config.mainModel;
+
+        if (options.configOverride) {
+            modelConfig = options.configOverride;
+        }
+
+        const temperature = options.temperature ?? config.temperature;
+        const timeoutMs = options.timeoutMs ?? 180000;
+
+        const payload = {
+            model: modelConfig.model,
+            messages,
+            temperature,
+            stream: true // Enable streaming
+        };
+
+        console.log(`[LlmGateway] Calling (Stream) ${modelConfig.model} at ${modelConfig.baseUrl}`);
+
+        const response = await this.fetchWithTimeout(
+            `${modelConfig.baseUrl}/chat/completions`,
+            {
+                method: 'POST',
+                headers: this.buildHeaders(modelConfig),
+                body: JSON.stringify(payload)
+            },
+            timeoutMs
+        );
+
+        if (!response.ok) {
+            const errorBody = await response.text();
+            throw new Error(`LLM API Error (${response.status}): ${errorBody.substring(0, 200)}`);
+        }
+
+        if (!response.body) {
+            throw new Error('Response body is null');
+        }
+
+        // Node.js ReadableStream handling
+        const reader = (response.body as any).getReader ? (response.body as any).getReader() : null;
+
+        // Handling for Node.js environment (node-fetch or native fetch with Node streams)
+        // If Response.body is a Node.js stream, we iterate it.
+        // If it's a web standard ReadableStream (e.g. Electron renderer or newer Node), we read via reader.
+
+        const decoder = new TextDecoder('utf-8');
+        let buffer = '';
+
+        if (reader) {
+            // Web Standard ReadableStream
+            try {
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    const chunk = decoder.decode(value, { stream: true });
+                    buffer += chunk;
+
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop() || ''; // Keep the incomplete line in buffer
+
+                    for (const line of lines) {
+                        const trimmedLine = line.trim();
+                        if (!trimmedLine || trimmedLine === 'data: [DONE]') continue;
+                        if (trimmedLine.startsWith('data: ')) {
+                            const dataStr = trimmedLine.substring(6);
+                            try {
+                                const data = JSON.parse(dataStr);
+                                const content = data.choices?.[0]?.delta?.content || '';
+                                if (content) yield content;
+                            } catch (e) {
+                                // Ignore parse errors for partial lines
+                            }
+                        }
+                    }
+                }
+            } finally {
+                reader.releaseLock();
+            }
+        } else {
+            // For Node.js internal fetch (undici) or similar where body is async iterable
+            // @ts-ignore
+            for await (const chunk of response.body) {
+                const text = decoder.decode(chunk as BufferSource, { stream: true });
+                buffer += text;
+
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || '';
+
+                for (const line of lines) {
+                    const trimmedLine = line.trim();
+                    if (!trimmedLine || trimmedLine === 'data: [DONE]') continue;
+                    if (trimmedLine.startsWith('data: ')) {
+                        const dataStr = trimmedLine.substring(6);
+                        try {
+                            const data = JSON.parse(dataStr);
+                            const content = data.choices?.[0]?.delta?.content || '';
+                            if (content) yield content;
+                        } catch (e) {
+                            // Ignore
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // --- Private Helper Methods ---
 
     /**

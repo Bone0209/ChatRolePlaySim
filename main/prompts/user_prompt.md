@@ -58,6 +58,10 @@ Each block starts with a tag in brackets `[...]`.
   - Use for spoken dialogue.
   - Replace `Name` with the actual character name (e.g., `[speech:Aria]`, `[speech:{{targetName}}]`).
 
+- `[announce]`
+  - Use for system info (e.g., "Received an Item", "Quest Started").
+  - Visible to the user as a system message.
+
 - `[event]`
   - Use for system commands or game events (e.g. `battle:start`).
   - Do not use for normal roleplay.
@@ -77,7 +81,6 @@ Each block starts with a tag in brackets `[...]`.
 [narrative]
 {{targetName}}はポケットからリンゴを取り出した。
 甘酸っぱい香りが漂う。
-
 [speech:{{targetName}}]
 はい、どうぞ。新鮮なリンゴだよ。
 

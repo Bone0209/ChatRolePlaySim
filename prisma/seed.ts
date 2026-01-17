@@ -37,6 +37,7 @@ async function main() {
         { category: 'CHAT_TAG', keyName: 'CHAT_TAG_SPEECH', keyValue: 'speech' },
         { category: 'CHAT_TAG', keyName: 'CHAT_TAG_EVENT', keyValue: 'event' },
         { category: 'CHAT_TAG', keyName: 'CHAT_TAG_LOG', keyValue: 'log' },
+        { category: 'CHAT_TAG', keyName: 'CHAT_TAG_ANNOUNCE', keyValue: 'announce' },
     ]
 
     console.log('Seeding global_constants to dev.db...')

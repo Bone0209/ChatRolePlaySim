@@ -21,7 +21,8 @@ import {
     ProcessActionUseCase,
     UpdateAffectionUseCase
 } from './application/usecases/game';
-import { SendMessageUseCase } from './application/usecases/chat/SendMessageUseCase';
+import { SendPlayerMessageUseCase } from './application/usecases/chat/SendPlayerMessageUseCase';
+import { GenerateNpcResponseUseCase } from './application/usecases/chat/GenerateNpcResponseUseCase';
 
 // Handlers
 import {
@@ -178,7 +179,10 @@ function setupHandlers() {
     const updateAffectionUC = new UpdateAffectionUseCase(entityRepo);
 
     // Chat
-    const sendMessageUC = new SendMessageUseCase(
+    // Chat
+    const sendPlayerMessageUC = new SendPlayerMessageUseCase(chatRepo, entityRepo, worldRepo);
+
+    const generateNpcResponseUC = new GenerateNpcResponseUseCase(
         chatRepo,
         entityRepo,
         worldRepo,
@@ -199,7 +203,7 @@ function setupHandlers() {
 
     // Actually, let's register ChatHandler first as it's the target.
     registerGameHandler(entityRepo, getSteps, setSteps);
-    registerChatHandler(sendMessageUC, chatRepo, entityRepo, userProfileRepo);
+    registerChatHandler(sendPlayerMessageUC, generateNpcResponseUC, chatRepo, entityRepo, userProfileRepo);
     setupUserProfileHandlers();
 }
 
